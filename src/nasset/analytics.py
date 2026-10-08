@@ -125,7 +125,7 @@ def option_risk_score(
     delta_abs = max(delta_abs, 0.01)
     dte = max(dte, 1.0)
     liquidity = min(max(liquidity, 0.05), 1.0)
-    yield_per_delta = annualized_yield_pct / (delta_abs * 100.0)
+    yield_per_delta = annualized_yield_pct / ((delta_abs * 100.0) ** 1.2)
 
     if dte < 21:
         dte_factor = math.sqrt(dte / 21.0)
@@ -148,6 +148,7 @@ def normalize_scores(cells: list[dict]) -> None:
     maximum = max(values, default=0.0)
     for cell in cells:
         raw = float(cell.pop("_raw_score", 0.0))
+        cell["raw_score"] = round(raw, 8)
         cell["score"] = round((raw / maximum * 100.0) if maximum > 0 else 0.0, 2)
 
 
