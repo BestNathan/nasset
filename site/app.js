@@ -117,12 +117,7 @@ function renderYieldLadder() {
     '</tr></thead><tbody>' + rows + '</tbody></table></div>';
 
   document.querySelectorAll(".yield-row").forEach(row => {
-    row.addEventListener("click", () => {
-      state.selected = row.dataset.asset;
-      renderNav();
-      renderDetail();
-      document.getElementById("detail").scrollIntoView({ behavior: "smooth", block: "start" });
-    });
+    row.addEventListener("click", () => selectAsset(row.dataset.asset));
   });
 }
 
@@ -151,12 +146,40 @@ function renderNav() {
 
   const nav = document.getElementById("assetNav");
   nav.querySelectorAll("button").forEach(btn => {
-    btn.addEventListener("click", () => {
-      state.selected = btn.dataset.id;
-      renderNav();
-      renderDetail();
-    });
+    btn.addEventListener("click", () => selectAsset(btn.dataset.id));
   });
+  ensureSelectedAssetVisible(nav);
+}
+
+function selectAsset(assetId) {
+  state.selected = assetId;
+  renderNav();
+  renderDetail();
+
+  const detail = document.getElementById("detail");
+  if (detail) {
+    detail.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+}
+
+function ensureSelectedAssetVisible(nav) {
+  const active = nav.querySelector(".asset-btn.active");
+  if (!active) return;
+
+  const navTop = nav.scrollTop;
+  const navBottom = navTop + nav.clientHeight;
+  const itemTop = active.offsetTop;
+  const itemBottom = itemTop + active.offsetHeight;
+  const margin = 16;
+
+  if (itemTop < navTop + margin) {
+    nav.scrollTo({ top: Math.max(0, itemTop - margin), behavior: "smooth" });
+  } else if (itemBottom > navBottom - margin) {
+    nav.scrollTo({
+      top: Math.max(0, itemBottom - nav.clientHeight + margin),
+      behavior: "smooth"
+    });
+  }
 }
 
 function renderAssetButton(a) {
