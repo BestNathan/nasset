@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-10-08T10:36:34.365064+00:00",
+  "base_currency": "USD",
+  "methodology": {
+    "high_liquidity_window_days": 90,
+    "income_asset_window_days": 1095,
+    "valuation": "Invest 100 at the beginning of the window, hold, do not reinvest distributions, and mark to current value.",
+    "option_income": "Current seller premium proxy (bid when available), mechanically annualized by 365/DTE. Delta is a Black-Scholes proxy. Daily snapshots build the historical estimate series.",
+    "best_strategy": "Option matrices rank premium yield per |delta| adjusted for DTE, IV versus recent realized volatility, and liquidity."
+  },
+  "assets": [],
+  "errors": [
+    {
+      "asset_id": "btc",
+      "symbol": "BTC",
+      "error": "RuntimeError: request failed: https://www.deribit.com/api/v2/public/get_instruments"
+    },
+    {
+      "asset_id": "spy",
+      "symbol": "SPY",
+      "error": "ModuleNotFoundError: No module named 'scipy'"
+    },
+    {
+      "asset_id": "tlt",
+      "symbol": "TLT",
+      "error": "ModuleNotFoundError: No module named 'scipy'"
+    },
+    {
+      "asset_id": "vnq",
+      "symbol": "VNQ",
+      "error": "ModuleNotFoundError: No module named 'scipy'"
+    },
+    {
+      "asset_id": "sreit",
+      "symbol": "CLR.SI",
+      "error": "ModuleNotFoundError: No module named 'scipy'"
+    },
+    {
+      "asset_id": "jreit",
+      "symbol": "1343.T",
+      "error": "ModuleNotFoundError: No module named 'scipy'"
+    },
+    {
+      "asset_id": "infra",
+      "symbol": "IGF",
+      "error": "ModuleNotFoundError: No module named 'scipy'"
+    }
+  ]
+}
