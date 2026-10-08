@@ -185,6 +185,74 @@ def asset_metrics(history: pd.DataFrame, window_days: int) -> dict:
     }
 
 
+def manual_income_metrics(
+    history: pd.DataFrame,
+    annual_cash_yield_pct: float,
+    window_days: int,
+    observations_per_year: float = 12.0,
+) -> dict:
+    """Metrics for slower manual benchmarks such as direct property.
+
+    Cashflow is modeled as a stated annual gross yield on initial capital.
+    Price observations may be monthly or quarterly, so volatility annualization
+    uses the supplied observation frequency rather than daily scaling.
+    """
+    if history.empty or "Close" not in history:
+        raise ValueError("price history is empty")
+
+    frame = history.copy()
+    frame = frame.loc[frame["Close"].notna() & (frame["Close"] > 0)]
+    if len(frame) < 2:
+        raise ValueError("manual benchmark needs at least two price observations")
+
+    end_ts = frame.index[-1]
+    cutoff = end_ts - pd.Timedelta(days=window_days)
+    clipped = frame.loc[frame.index >= cutoff]
+    if len(clipped) < 2:
+        clipped = frame
+
+    start_ts = clipped.index[0]
+    end_ts = clipped.index[-1]
+    start_price = float(clipped["Close"].iloc[0])
+    end_price = float(clipped["Close"].iloc[-1])
+    days = max((end_ts - start_ts).total_seconds() / 86400.0, 1.0)
+
+    initial_value = 100.0
+    current_asset_value = initial_value * end_price / start_price
+    cumulative_cash = initial_value * (annual_cash_yield_pct / 100.0) * days / 365.0
+    total_value = current_asset_value + cumulative_cash
+
+    prices = clipped["Close"].to_numpy(dtype=float)
+    log_returns = np.diff(np.log(prices))
+    vol = (
+        float(np.std(log_returns, ddof=1) * math.sqrt(observations_per_year) * 100.0)
+        if log_returns.size >= 2
+        else float("nan")
+    )
+
+    return {
+        "start_date": start_ts.date().isoformat(),
+        "end_date": end_ts.date().isoformat(),
+        "window_days_actual": round(days, 2),
+        "start_price": round(start_price, 8),
+        "current_price": round(end_price, 8),
+        "initial_value_index": 100.0,
+        "current_asset_value_index": round(current_asset_value, 4),
+        "cumulative_cash_index": round(cumulative_cash, 4),
+        "total_value_index": round(total_value, 4),
+        "price_return_pct": round((current_asset_value / initial_value - 1.0) * 100.0, 4),
+        "annualized_price_return_pct": round(
+            _safe_cagr(current_asset_value / initial_value, days), 4
+        ),
+        "annualized_cash_yield_pct": round(float(annual_cash_yield_pct), 4),
+        "total_return_pct": round((total_value / initial_value - 1.0) * 100.0, 4),
+        "annualized_total_return_pct": round(
+            _safe_cagr(total_value / initial_value, days), 4
+        ),
+        "realized_vol_pct": round(vol, 4) if math.isfinite(vol) else None,
+    }
+
+
 def option_risk_score(
     annualized_yield_pct: float,
     delta_abs: float,

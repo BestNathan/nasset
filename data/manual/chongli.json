@@ -1,0 +1,67 @@
+{
+  "asset_id": "chongli_property",
+  "name": "Chongli Residential Benchmark",
+  "quote_currency": "CNY",
+  "unit": "m²",
+  "source": "聚汇数据 · 崇礼区房价",
+  "source_url": "https://fangjia.gotohui.com/fjdata-1400",
+  "source_cadence": "monthly",
+  "source_effective_date": "2026-09-01",
+  "price_basis": "崇礼区二手房月度均价，CNY/m²",
+  "cashflow_basis": "区域公开年租金回报率（gross rental yield）",
+  "annual_cash_yield_pct": 1.78,
+  "history": [
+    {
+      "date": "2025-09-01",
+      "price": 8298
+    },
+    {
+      "date": "2025-10-01",
+      "price": 7907
+    },
+    {
+      "date": "2025-11-01",
+      "price": 7858
+    },
+    {
+      "date": "2025-12-01",
+      "price": 8379
+    },
+    {
+      "date": "2026-01-01",
+      "price": 9025
+    },
+    {
+      "date": "2026-02-01",
+      "price": 9634
+    },
+    {
+      "date": "2026-03-01",
+      "price": 9935
+    },
+    {
+      "date": "2026-05-01",
+      "price": 9532
+    },
+    {
+      "date": "2026-06-01",
+      "price": 9255
+    },
+    {
+      "date": "2026-07-01",
+      "price": 8339
+    },
+    {
+      "date": "2026-08-01",
+      "price": 8054
+    },
+    {
+      "date": "2026-09-01",
+      "price": 8440
+    }
+  ],
+  "notes": [
+    "The rent yield is a regional gross benchmark, not a net yield for a specific ski-resort unit.",
+    "Vacancy, furnishing, property management, maintenance, taxes and transaction costs are not deducted yet."
+  ]
+}

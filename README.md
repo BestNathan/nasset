@@ -8,6 +8,17 @@ nasset keeps three questions separate:
 2. **How much cashflow did / can the asset produce?** Historical assets use actual distributions; option strategies use current seller-executable premium and mechanical annualization.
 3. **Which option-income cell is attractive now?** Strategies are rendered as DTE × Delta matrices with a transparent risk-adjusted ranking.
 
+## Cashflow risk ladder
+
+nasset organizes assets by the **source and complexity of cashflow**, with a conceptual risk progression:
+
+1. **Contractual Income** — cash / short rates, sovereign bonds, investment-grade credit, senior structured credit.
+2. **Productive Distribution** — dividend equities & banks, preferred/hybrid, listed REITs, BDC/private credit, infrastructure & utilities.
+3. **Illiquid Real Assets** — direct property, farmland, timberland, royalties and private real assets.
+4. **Engineered Yield** — option overlays, staking, lending/carry and basis/relative-value strategies.
+
+This is not a universal probability-of-loss rating. Long-duration sovereign bonds can still have large mark-to-market drawdowns; the ladder instead describes increasing dependence on operating results, illiquidity and actively sold risk.
+
 ## Assets in v0.1
 
 | Asset | Proxy / venue | Window | Cashflow model |
@@ -15,10 +26,14 @@ nasset keeps three questions separate:
 | Bitcoin | Deribit BTC | 90D | covered call + cash-secured put matrices |
 | S&P 500 | SPY / CBOE | 90D | covered call + cash-secured put matrices |
 | US long Treasury | TLT | 3Y | distributions |
+| ICBC A | 601398.SS | 3Y | dividends |
+| China Construction Bank A | 601939.SS | 3Y | dividends |
+| China Merchants Bank A | 600036.SS | 3Y | dividends |
 | US REIT | VNQ | 3Y | distributions |
 | Singapore REIT | CLR.SI | 3Y | distributions |
 | Japan REIT | 1343.T | 3Y | distributions |
 | Global infrastructure | IGF | 3Y | distributions |
+| Chongli property benchmark | regional second-hand housing | monthly source / daily snapshot | gross rental yield + property value |
 
 The asset registry is in `src/nasset/engine.py`.
 
@@ -45,7 +60,7 @@ Daily snapshots build the time series. This lets the dashboard evolve from a poi
 
 ### Income / slower-moving assets
 
-TLT, REIT and infrastructure proxies use a **3-year** window, reporting principal value, cash distributions and total-value CAGR separately. Non-USD assets are converted through historical FX into USD before the return calculation, so currency gains/losses are part of present value.
+TLT, China bank equities, REIT and infrastructure proxies use a **3-year** window, reporting principal value, cash distributions and total-value CAGR separately. Non-USD assets are converted through historical FX into USD before the return calculation, so currency gains/losses are part of present value.
 
 ## Daily pipeline
 
@@ -86,3 +101,8 @@ Provider failures are isolated per asset and recorded in the daily snapshot.
 ## Important
 
 Mechanically annualized option premium is **not** a guaranteed APY. Selling options exchanges convexity / tail exposure for current cashflow. nasset is an observability and comparison tool, not personalized investment advice.
+
+
+### Direct property benchmark
+
+The initial China real-estate benchmark is **Chongli second-hand residential property**. It uses a monthly regional price series and the source's stated **1.78% gross annual rental yield**. The repository still writes a daily snapshot, but the page labels the source cadence as monthly. Vacancy, furnishing, property management, maintenance, tax and transaction costs are not yet deducted, so the rental yield must not be interpreted as net distributable cash.

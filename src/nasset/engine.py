@@ -2,31 +2,44 @@ from __future__ import annotations
 
 import copy
 import json
+
+import pandas as pd
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .analytics import asset_metrics
+from .analytics import asset_metrics, manual_income_metrics
 from .providers import CboeProvider, DeribitProvider, YahooProvider
+from .taxonomy import CASHFLOW_TAXONOMY, taxonomy_index
 
 TARGET_DTES = [7, 14, 30, 60, 90]
 TARGET_DELTAS = [5, 10, 15, 20, 25]
 
 ASSETS: list[dict[str, Any]] = [
-    {"id":"btc","name":"Bitcoin","symbol":"BTC","currency":"USD","category":"Crypto","liquidity":"high","window_days":90,"provider":"deribit","strategies":["covered_call","cash_secured_put"],"description":"BTC spot plus Deribit option-income overlays."},
-    {"id":"spy","name":"S&P 500","symbol":"SPY","currency":"USD","category":"Equity","liquidity":"high","window_days":90,"provider":"yahoo","option_provider":"cboe","strategies":["covered_call","cash_secured_put"],"description":"SPY as a liquid high-quality equity proxy with option overlays."},
-    {"id":"tlt","name":"US Long Treasury","symbol":"TLT","currency":"USD","category":"Government bonds","liquidity":"income","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"20+ year US Treasury ETF proxy; 3-year income and mark-to-market window."},
-    {"id":"vnq","name":"US REIT","symbol":"VNQ","currency":"USD","category":"REIT","liquidity":"income","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"Broad US listed real estate proxy."},
-    {"id":"sreit","name":"Singapore REIT","symbol":"CLR.SI","currency":"SGD","category":"REIT","liquidity":"income","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"Lion-Phillip S-REIT ETF proxy for Singapore REIT income."},
-    {"id":"jreit","name":"Japan REIT","symbol":"1343.T","currency":"JPY","category":"REIT","liquidity":"income","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"NEXT FUNDS Tokyo Stock Exchange REIT Index ETF proxy."},
-    {"id":"infra","name":"Global Infrastructure","symbol":"IGF","currency":"USD","category":"Infrastructure","liquidity":"income","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"Global infrastructure equities as a listed real-asset proxy."},
+    {"id":"tlt","name":"US Long Treasury","symbol":"TLT","currency":"USD","market":"US","unit":"share","layer_id":"contractual","subcategory_id":"sovereign_bonds","category":"Government bonds","liquidity":"income","source_cadence":"daily","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"20+ year US Treasury ETF proxy; contractual coupon income with substantial duration risk."},
+
+    {"id":"icbc","name":"ICBC A","symbol":"601398.SS","currency":"CNY","market":"China A","unit":"share","layer_id":"productive","subcategory_id":"dividend_equity","category":"China bank","liquidity":"income","source_cadence":"daily","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"Industrial and Commercial Bank of China A-share; dividend income plus bank-equity price risk."},
+    {"id":"ccb","name":"China Construction Bank A","symbol":"601939.SS","currency":"CNY","market":"China A","unit":"share","layer_id":"productive","subcategory_id":"dividend_equity","category":"China bank","liquidity":"income","source_cadence":"daily","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"China Construction Bank A-share; dividend income plus bank-equity price risk."},
+    {"id":"cmb","name":"China Merchants Bank A","symbol":"600036.SS","currency":"CNY","market":"China A","unit":"share","layer_id":"productive","subcategory_id":"dividend_equity","category":"China bank","liquidity":"income","source_cadence":"daily","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"China Merchants Bank A-share; a higher-quality retail-bank proxy with dividend income."},
+
+    {"id":"vnq","name":"US REIT","symbol":"VNQ","currency":"USD","market":"US","unit":"share","layer_id":"productive","subcategory_id":"reit","category":"REIT","liquidity":"income","source_cadence":"daily","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"Broad US listed real estate proxy."},
+    {"id":"sreit","name":"Singapore REIT","symbol":"CLR.SI","currency":"SGD","market":"Singapore","unit":"share","layer_id":"productive","subcategory_id":"reit","category":"REIT","liquidity":"income","source_cadence":"daily","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"Lion-Phillip S-REIT ETF proxy for Singapore REIT income."},
+    {"id":"jreit","name":"Japan REIT","symbol":"1343.T","currency":"JPY","market":"Japan","unit":"share","layer_id":"productive","subcategory_id":"reit","category":"REIT","liquidity":"income","source_cadence":"daily","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"NEXT FUNDS Tokyo Stock Exchange REIT Index ETF proxy."},
+    {"id":"infra","name":"Global Infrastructure","symbol":"IGF","currency":"USD","market":"Global","unit":"share","layer_id":"productive","subcategory_id":"infrastructure","category":"Infrastructure","liquidity":"income","source_cadence":"daily","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"Global infrastructure equities as a listed real-asset proxy."},
+
+    {"id":"chongli_property","name":"Chongli Property Benchmark","symbol":"CHONGLI-RESI","currency":"CNY","market":"China · Hebei · Chongli","unit":"m²","layer_id":"real_assets","subcategory_id":"direct_property","category":"Direct property","liquidity":"illiquid","source_cadence":"monthly","window_days":1095,"provider":"manual_real_asset","data_file":"data/manual/chongli.json","strategies":["rental_income"],"description":"Chongli district second-hand residential benchmark; combines regional price change with a gross rental-yield benchmark."},
+
+    {"id":"btc","name":"Bitcoin","symbol":"BTC","currency":"USD","market":"Crypto","unit":"BTC","layer_id":"engineered","subcategory_id":"option_overlay","category":"Crypto option overlay","liquidity":"high","source_cadence":"daily","window_days":90,"provider":"deribit","strategies":["covered_call","cash_secured_put"],"description":"BTC spot plus Deribit option-income overlays."},
+    {"id":"spy","name":"S&P 500","symbol":"SPY","currency":"USD","market":"US","unit":"share","layer_id":"engineered","subcategory_id":"option_overlay","category":"Equity option overlay","liquidity":"high","source_cadence":"daily","window_days":90,"provider":"yahoo","option_provider":"cboe","strategies":["covered_call","cash_secured_put"],"description":"SPY as a liquid equity underlying with option-income overlays."},
 ]
+
 
 
 def collect_snapshot() -> dict:
     deribit = DeribitProvider()
     cboe = CboeProvider()
     yahoo = YahooProvider()
+    taxonomy = taxonomy_index()
     assets: list[dict] = []
     errors: list[dict] = []
 
@@ -39,12 +52,22 @@ def collect_snapshot() -> dict:
                     "valuation_currency": "USD",
                     "local_current_price": float(history["Close"].dropna().iloc[-1]),
                     "fx_to_usd": 1.0,
+                    "valuation_unit": config.get("unit", "unit"),
+                    "source_cadence": config.get("source_cadence", "daily"),
                 }
+                metrics = asset_metrics(history, config["window_days"])
+            elif config["provider"] == "manual_real_asset":
+                metrics, market_meta = _manual_real_asset_metrics(config, yahoo)
             else:
                 history, market_meta = yahoo.history_usd(
                     config["symbol"], config["window_days"], config["currency"]
                 )
-            metrics = asset_metrics(history, config["window_days"])
+                metrics = asset_metrics(history, config["window_days"])
+                market_meta.update({
+                    "valuation_unit": config.get("unit", "share"),
+                    "source_cadence": config.get("source_cadence", "daily"),
+                    "source": "Yahoo Finance",
+                })
             metrics.update(market_meta)
             strategies: list[dict] = []
 
@@ -70,6 +93,16 @@ def collect_snapshot() -> dict:
                 )
                 strategies.append({"id":"cash_secured_put","name":"Cash-Secured Put","kind":"option_matrix","matrix":matrix})
 
+            if "rental_income" in config["strategies"]:
+                strategies.append({
+                    "id":"rental_income",
+                    "name":"Gross Rental Income",
+                    "kind":"income",
+                    "annualized_yield_pct":metrics["annualized_cash_yield_pct"],
+                    "measurement_window_days":config["window_days"],
+                    "yield_basis":"gross regional rental yield",
+                })
+
             if "distributions" in config["strategies"]:
                 strategies.append({
                     "id":"distributions",
@@ -79,9 +112,17 @@ def collect_snapshot() -> dict:
                     "measurement_window_days":config["window_days"],
                 })
 
+            taxonomy_meta = taxonomy[(config["layer_id"], config["subcategory_id"])]
             assets.append({
                 "id":config["id"], "name":config["name"], "symbol":config["symbol"],
-                "category":config["category"], "liquidity":config["liquidity"], "quote_currency":config["currency"],
+                "category":config["category"], "liquidity":config["liquidity"],
+                "quote_currency":config["currency"], "market":config["market"],
+                "unit":config.get("unit", "unit"),
+                "layer_id":config["layer_id"], "subcategory_id":config["subcategory_id"],
+                "risk_level":taxonomy_meta["layer"]["level"],
+                "layer_name":taxonomy_meta["layer"]["name"],
+                "subcategory_name":taxonomy_meta["subcategory"]["name"],
+                "source_cadence":config.get("source_cadence", "daily"),
                 "measurement_window_days":config["window_days"], "description":config["description"],
                 "valuation":metrics, "strategies":strategies,
                 "best_strategy":_choose_asset_best(strategies),
@@ -93,15 +134,61 @@ def collect_snapshot() -> dict:
         "schema_version":1,
         "generated_at":datetime.now(timezone.utc).isoformat(),
         "base_currency":"USD",
+        "taxonomy":CASHFLOW_TAXONOMY,
         "methodology":{
             "high_liquidity_window_days":90,
             "income_asset_window_days":1095,
             "valuation":"Invest 100 at the beginning of the window, hold, do not reinvest distributions, and mark to current value.",
             "option_income":"Current seller-executable bid is mechanically annualized by 365/DTE. BTC uses Deribit; listed US options prefer CBOE delayed Greeks/quotes with a Yahoo fallback. Daily snapshots build the historical estimate series.",
             "best_strategy":"Option matrices rank premium yield divided by |delta|^1.2, adjusted for DTE, IV versus recent realized volatility, and liquidity.",
+            "risk_ladder":"Layers 1→4 are a conceptual progression in cashflow complexity, operating dependence, illiquidity and actively sold risk. They are not universal loss-probability ratings.",
         },
         "assets":assets,
         "errors":errors,
+    }
+
+
+def _manual_real_asset_metrics(config: dict, yahoo: YahooProvider) -> tuple[dict, dict]:
+    root = Path(__file__).resolve().parents[2]
+    payload = json.loads((root / config["data_file"]).read_text())
+
+    frame = pd.DataFrame(
+        {"Close": [float(row["price"]) for row in payload["history"]]},
+        index=pd.to_datetime([row["date"] for row in payload["history"]], utc=True),
+    ).sort_index()
+
+    quote_currency = payload.get("quote_currency", config["currency"]).upper()
+    local_current = float(frame["Close"].iloc[-1])
+    fx_to_usd = 1.0
+    converted = frame.copy()
+
+    if quote_currency != "USD":
+        fx = yahoo.history(f"{quote_currency}USD=X", config["window_days"] + 60)
+        rates = fx["Close"].reindex(frame.index, method="ffill").bfill()
+        if rates.isna().any():
+            raise RuntimeError(f"missing FX conversion data for {quote_currency}/USD")
+        converted["Close"] = frame["Close"] * rates
+        fx_to_usd = float(rates.iloc[-1])
+
+    metrics = manual_income_metrics(
+        converted,
+        float(payload["annual_cash_yield_pct"]),
+        config["window_days"],
+        observations_per_year=12.0,
+    )
+    return metrics, {
+        "quote_currency": quote_currency,
+        "valuation_currency": "USD",
+        "local_current_price": local_current,
+        "fx_to_usd": fx_to_usd,
+        "valuation_unit": payload.get("unit", config.get("unit", "unit")),
+        "source": payload.get("source"),
+        "source_url": payload.get("source_url"),
+        "source_effective_date": payload.get("source_effective_date"),
+        "source_cadence": payload.get("source_cadence", config.get("source_cadence", "monthly")),
+        "price_basis": payload.get("price_basis"),
+        "cashflow_basis": payload.get("cashflow_basis"),
+        "notes": payload.get("notes", []),
     }
 
 

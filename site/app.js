@@ -24,6 +24,7 @@ function render() {
   const s = state.snapshot;
   document.getElementById("freshness").innerHTML = "Generated<br><strong>" + new Date(s.generated_at).toLocaleString() + "</strong>";
   renderSummary();
+  renderRiskLadder();
   renderNav();
   renderDetail();
 }
@@ -53,14 +54,56 @@ function summaryCard(label, value, sub) {
     value + '</div><div class="sub">' + sub + '</div></div>';
 }
 
-function renderNav() {
-  const html = state.snapshot.assets.map(a => {
-    const active = a.id === state.selected ? " active" : "";
-    return '<button class="asset-btn' + active + '" data-id="' + a.id + '">' +
-      a.name + '<small>' + a.symbol + ' · ' + a.category + '</small></button>';
+function renderRiskLadder() {
+  const taxonomy = state.snapshot.taxonomy || [];
+  const assets = state.snapshot.assets || [];
+  const html = taxonomy.map(layer => {
+    const layerAssets = assets.filter(a => a.layer_id === layer.id);
+    const yields = layerAssets
+      .map(a => Number((a.best_strategy || {}).annualized_cash_yield_pct))
+      .filter(Number.isFinite);
+    const yieldText = yields.length
+      ? Math.min(...yields).toFixed(1) + "% – " + Math.max(...yields).toFixed(1) + "%"
+      : "no live asset yet";
+    return '<article class="risk-layer risk-' + layer.level + '">' +
+      '<div class="risk-layer-top"><span class="risk-number">0' + layer.level + '</span>' +
+      '<div><div class="risk-name">' + layer.name + '</div><div class="risk-label">' + layer.risk_label + '</div></div></div>' +
+      '<p>' + layer.description + '</p>' +
+      '<div class="risk-subs">' + layer.subcategories.map(s => '<span>' + s.name + '</span>').join("") + '</div>' +
+      '<div class="risk-stats"><strong>' + yieldText + '</strong><span>' + layerAssets.length + ' tracked assets</span></div>' +
+    '</article>';
   }).join("");
+
+  document.getElementById("riskLadder").innerHTML =
+    '<div class="risk-intro"><div><div class="eyebrow">CASHFLOW RISK LADDER</div>' +
+    '<h2>Contractual cashflow → engineered yield</h2></div>' +
+    '<p>This is a conceptual progression in cashflow complexity and actively assumed risk, not a universal probability-of-loss rating. Duration, leverage and valuation can still make a lower layer volatile.</p></div>' +
+    '<div class="risk-grid">' + html + '</div>';
+}
+
+function renderNav() {
+  const taxonomy = state.snapshot.taxonomy || [];
+  const assets = state.snapshot.assets || [];
+
+  if (!taxonomy.length) {
+    document.getElementById("assetNav").innerHTML = assets.map(renderAssetButton).join("");
+  } else {
+    document.getElementById("assetNav").innerHTML = taxonomy.map(layer => {
+      const groups = layer.subcategories.map(subcategory => {
+        const groupAssets = assets.filter(a =>
+          a.layer_id === layer.id && a.subcategory_id === subcategory.id
+        );
+        if (!groupAssets.length) return "";
+        return '<div class="nav-subgroup"><div class="nav-subtitle">' + subcategory.name + '</div>' +
+          groupAssets.map(renderAssetButton).join("") + '</div>';
+      }).join("");
+      if (!groups) return "";
+      return '<section class="nav-layer"><div class="nav-layer-title"><span>L' + layer.level + '</span>' +
+        layer.name + '</div>' + groups + '</section>';
+    }).join("");
+  }
+
   const nav = document.getElementById("assetNav");
-  nav.innerHTML = html;
   nav.querySelectorAll("button").forEach(btn => {
     btn.addEventListener("click", () => {
       state.selected = btn.dataset.id;
@@ -68,6 +111,12 @@ function renderNav() {
       renderDetail();
     });
   });
+}
+
+function renderAssetButton(a) {
+  const active = a.id === state.selected ? " active" : "";
+  return '<button class="asset-btn' + active + '" data-id="' + a.id + '">' +
+    a.name + '<small>' + a.symbol + ' · ' + a.market + '</small></button>';
 }
 
 function renderDetail() {
@@ -83,12 +132,26 @@ function renderDetail() {
       " · FX " + Number(v.fx_to_usd).toFixed(6) + " USD/" + v.quote_currency
     : "";
   const freshness = asset.stale ? "STALE · " : "";
+  const unit = v.valuation_unit || asset.unit || "unit";
+  const unitSuffix = unit ? " / " + unit : "";
+  const sourceLine = v.source
+    ? '<div class="source-line">Source: ' + v.source +
+      (v.source_effective_date ? ' · effective ' + v.source_effective_date : '') +
+      (v.source_cadence ? ' · ' + v.source_cadence + ' source' : '') + '</div>'
+    : "";
+  const classification = '<div class="asset-tags">' +
+    '<span>L' + asset.risk_level + ' · ' + asset.layer_name + '</span>' +
+    '<span>' + asset.subcategory_name + '</span>' +
+    '<span>' + asset.market + '</span>' +
+    '<span>' + asset.source_cadence + ' source</span>' +
+    '</div>';
 
   document.getElementById("detail").innerHTML =
     '<div class="detail-head"><div><h2>' + asset.name + '</h2><div class="muted">' +
-    asset.description + localMarket + '</div></div><div class="badge">' + freshness + asset.measurement_window_days + 'D window</div></div>' +
+    asset.description + localMarket + '</div>' + classification + sourceLine +
+    '</div><div class="badge">' + freshness + asset.measurement_window_days + 'D window</div></div>' +
     '<div class="metrics">' +
-      metric("Current price (USD)", "$" + money(v.current_price), "") +
+      metric("Current price (USD" + unitSuffix + ")", "$" + money(v.current_price), "") +
       metric("Asset value change", pct(v.price_return_pct), cls(v.price_return_pct)) +
       metric("Cash distributions", pct(v.annualized_cash_yield_pct), "") +
       metric("Total return CAGR", pct(v.annualized_total_return_pct), cls(v.annualized_total_return_pct)) +
@@ -103,7 +166,7 @@ function renderDetail() {
       lineChart(history, "annualized_cash_yield_pct", "line-b") +
       '</div></div>' +
     '<div class="method">Window: ' + v.start_date + ' → ' + v.end_date +
-      '. Start with 100, buy once, do not reinvest distributions. Option income uses a seller-executable premium proxy and is mechanically annualized; the risk score is only a relative ranking tool.</div>' +
+      '. Start with 100, buy once, do not reinvest distributions. Slow assets may use monthly source observations while the repository still records a daily snapshot. Option income uses a seller-executable premium proxy and is mechanically annualized; the risk score is only a relative ranking tool.</div>' +
     renderErrors(asset.id);
 }
 

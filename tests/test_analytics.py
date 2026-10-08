@@ -1,6 +1,6 @@
 import pandas as pd
 
-from nasset.analytics import asset_metrics, bs_delta, bs_price, implied_vol_pct_from_price, option_risk_score
+from nasset.analytics import asset_metrics, bs_delta, bs_price, implied_vol_pct_from_price, manual_income_metrics, option_risk_score
 
 
 def test_bs_delta_has_expected_signs():
@@ -30,3 +30,12 @@ def test_implied_vol_round_trip():
     price = bs_price(100, 105, 30, 25, "call", rate=0.04)
     iv = implied_vol_pct_from_price(price, 100, 105, 30, "call", rate=0.04)
     assert abs(iv - 25.0) < 0.01
+
+
+def test_manual_income_metrics_uses_monthly_vol_scaling_and_stated_yield():
+    idx = pd.to_datetime(["2025-01-01", "2025-07-01", "2026-01-01"], utc=True)
+    history = pd.DataFrame({"Close":[100.0, 95.0, 102.0]}, index=idx)
+    result = manual_income_metrics(history, 2.0, 365, observations_per_year=12)
+    assert result["annualized_cash_yield_pct"] == 2.0
+    assert result["price_return_pct"] == 2.0
+    assert result["total_value_index"] > 103.9
