@@ -1,6 +1,6 @@
 import pandas as pd
 
-from nasset.analytics import asset_metrics, bs_delta, option_risk_score
+from nasset.analytics import asset_metrics, bs_delta, bs_price, implied_vol_pct_from_price, option_risk_score
 
 
 def test_bs_delta_has_expected_signs():
@@ -24,3 +24,9 @@ def test_short_dte_is_penalized_at_same_inputs():
     short = option_risk_score(10, 0.1, 7, 40, 30, 1.0)
     medium = option_risk_score(10, 0.1, 30, 40, 30, 1.0)
     assert medium > short
+
+
+def test_implied_vol_round_trip():
+    price = bs_price(100, 105, 30, 25, "call", rate=0.04)
+    iv = implied_vol_pct_from_price(price, 100, 105, 30, "call", rate=0.04)
+    assert abs(iv - 25.0) < 0.01
