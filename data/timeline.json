@@ -1,26 +1,6 @@
 {
   "schema_version": 1,
   "assets": {
-    "btc": [
-      {
-        "date": "2026-10-08",
-        "current_asset_value_index": 128.5384,
-        "total_value_index": 128.5384,
-        "price_return_pct": 28.5384,
-        "annualized_cash_yield_pct": 3.82368,
-        "best_strategy": "Cash-Secured Put"
-      }
-    ],
-    "spy": [
-      {
-        "date": "2026-10-08",
-        "current_asset_value_index": 103.3936,
-        "total_value_index": 103.6449,
-        "price_return_pct": 3.3936,
-        "annualized_cash_yield_pct": 1.749572,
-        "best_strategy": "Cash-Secured Put"
-      }
-    ],
     "tlt": [
       {
         "date": "2026-10-08",
@@ -28,6 +8,36 @@
         "total_value_index": 102.0466,
         "price_return_pct": -11.097,
         "annualized_cash_yield_pct": 4.3852,
+        "best_strategy": "Hold for Distributions"
+      }
+    ],
+    "icbc": [
+      {
+        "date": "2026-10-08",
+        "current_asset_value_index": 191.0344,
+        "total_value_index": 211.023,
+        "price_return_pct": 91.0344,
+        "annualized_cash_yield_pct": 6.6629,
+        "best_strategy": "Hold for Distributions"
+      }
+    ],
+    "ccb": [
+      {
+        "date": "2026-10-08",
+        "current_asset_value_index": 190.3056,
+        "total_value_index": 209.3636,
+        "price_return_pct": 90.3056,
+        "annualized_cash_yield_pct": 6.3527,
+        "best_strategy": "Hold for Distributions"
+      }
+    ],
+    "cmb": [
+      {
+        "date": "2026-10-08",
+        "current_asset_value_index": 137.441,
+        "total_value_index": 156.053,
+        "price_return_pct": 37.441,
+        "annualized_cash_yield_pct": 6.204,
         "best_strategy": "Hold for Distributions"
       }
     ],
@@ -69,6 +79,36 @@
         "price_return_pct": 47.7051,
         "annualized_cash_yield_pct": 4.3631,
         "best_strategy": "Hold for Distributions"
+      }
+    ],
+    "chongli_property": [
+      {
+        "date": "2026-10-08",
+        "current_asset_value_index": 107.8266,
+        "total_value_index": 109.6066,
+        "price_return_pct": 7.8266,
+        "annualized_cash_yield_pct": 1.78,
+        "best_strategy": "Gross Rental Income"
+      }
+    ],
+    "btc": [
+      {
+        "date": "2026-10-08",
+        "current_asset_value_index": 128.7472,
+        "total_value_index": 128.7472,
+        "price_return_pct": 28.7472,
+        "annualized_cash_yield_pct": 5.27606,
+        "best_strategy": "Cash-Secured Put"
+      }
+    ],
+    "spy": [
+      {
+        "date": "2026-10-08",
+        "current_asset_value_index": 103.3936,
+        "total_value_index": 103.6449,
+        "price_return_pct": 3.3936,
+        "annualized_cash_yield_pct": 1.749572,
+        "best_strategy": "Cash-Secured Put"
       }
     ]
   }
