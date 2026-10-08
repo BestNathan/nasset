@@ -191,13 +191,23 @@
         "best_strategy": "Hold for Distributions"
       }
     ],
-    "china_reit_clean_energy": [
+    "china_reit_water": [
       {
         "date": "2026-10-08",
-        "current_asset_value_index": 95.0715,
-        "total_value_index": 97.4003,
-        "price_return_pct": -4.9285,
-        "annualized_cash_yield_pct": 1.9631,
+        "current_asset_value_index": 94.8863,
+        "total_value_index": 120.6959,
+        "price_return_pct": -5.1137,
+        "annualized_cash_yield_pct": 8.6032,
+        "best_strategy": "Hold for Distributions"
+      }
+    ],
+    "china_reit_hydropower": [
+      {
+        "date": "2026-10-08",
+        "current_asset_value_index": 150.2673,
+        "total_value_index": 165.1927,
+        "price_return_pct": 50.2673,
+        "annualized_cash_yield_pct": 5.8141,
         "best_strategy": "Hold for Distributions"
       }
     ],
@@ -244,20 +254,20 @@
     "btc": [
       {
         "date": "2026-10-08",
-        "current_asset_value_index": 128.5087,
-        "total_value_index": 128.5087,
-        "price_return_pct": 28.5087,
-        "annualized_cash_yield_pct": 4.397831,
+        "current_asset_value_index": 128.4479,
+        "total_value_index": 128.4479,
+        "price_return_pct": 28.4479,
+        "annualized_cash_yield_pct": 4.396865,
         "best_strategy": "Cash-Secured Put"
       }
     ],
     "eth": [
       {
         "date": "2026-10-08",
-        "current_asset_value_index": 140.8843,
-        "total_value_index": 140.8843,
-        "price_return_pct": 40.8843,
-        "annualized_cash_yield_pct": 6.572698,
+        "current_asset_value_index": 140.762,
+        "total_value_index": 140.762,
+        "price_return_pct": 40.762,
+        "annualized_cash_yield_pct": 6.777898,
         "best_strategy": "Cash-Secured Put"
       }
     ],
