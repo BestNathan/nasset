@@ -4,10 +4,10 @@
     "btc": [
       {
         "date": "2026-10-08",
-        "current_asset_value_index": 128.8517,
-        "total_value_index": 128.8517,
-        "price_return_pct": 28.8517,
-        "annualized_cash_yield_pct": 3.835299,
+        "current_asset_value_index": 128.8353,
+        "total_value_index": 128.8353,
+        "price_return_pct": 28.8353,
+        "annualized_cash_yield_pct": 3.835376,
         "best_strategy": "Covered Call"
       }
     ],
@@ -17,8 +17,8 @@
         "current_asset_value_index": 103.3936,
         "total_value_index": 103.6449,
         "price_return_pct": 3.3936,
-        "annualized_cash_yield_pct": 24.822905,
-        "best_strategy": "Covered Call"
+        "annualized_cash_yield_pct": 1.0191,
+        "best_strategy": null
       }
     ],
     "tlt": [
