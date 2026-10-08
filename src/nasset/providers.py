@@ -9,7 +9,7 @@ import pandas as pd
 import requests
 import yfinance as yf
 
-from .analytics import bs_delta, option_risk_score, normalize_scores, best_cell
+from .analytics import bs_delta, implied_vol_pct_from_price, option_risk_score, normalize_scores, best_cell
 
 
 class HttpClient:
@@ -225,21 +225,32 @@ class YahooProvider:
             table = chain.calls if option_type == "call" else chain.puts
             for _, row in table.iterrows():
                 strike = float(row.get("strike") or 0.0)
-                iv_pct = float(row.get("impliedVolatility") or 0.0) * 100.0
                 bid = float(row.get("bid") or 0.0)
-                iv_floor = max(5.0, rv_pct * 0.60)
-                iv_ceiling = max(200.0, rv_pct * 8.0)
+                ask = float(row.get("ask") or 0.0)
+                last = float(row.get("lastPrice") or 0.0)
                 is_otm = (option_type == "call" and strike > spot) or (
                     option_type == "put" and strike < spot
                 )
+                if strike <= 0 or bid <= 0 or not is_otm:
+                    continue
+
+                reference_price = (
+                    (bid + ask) / 2.0
+                    if ask >= bid and ask > 0
+                    else max(bid, last)
+                )
+                iv_pct = implied_vol_pct_from_price(
+                    reference_price, spot, strike, dte, option_type, rate=rate
+                )
+                iv_floor = max(5.0, rv_pct * 0.50)
+                iv_ceiling = max(200.0, rv_pct * 8.0)
                 if (
-                    strike <= 0
-                    or bid <= 0
-                    or not is_otm
+                    not math.isfinite(iv_pct)
                     or iv_pct < iv_floor
                     or iv_pct > iv_ceiling
                 ):
                     continue
+
                 premium = bid
                 delta = bs_delta(spot, strike, dte, iv_pct, option_type, rate=rate)
                 if not math.isfinite(delta):
