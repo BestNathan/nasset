@@ -73,26 +73,30 @@ class DeribitProvider:
     ) -> dict:
         spot = self.spot()
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-        instruments = self._call(
-            "get_instruments", currency="BTC", kind="option", expired=False
-        )
         summaries = self._call(
             "get_book_summary_by_currency", currency="BTC", kind="option"
         )
-        summary_map = {x["instrument_name"]: x for x in summaries}
 
         candidates: list[dict] = []
-        for item in instruments:
-            if item.get("option_type") != option_type:
+        for summary in summaries:
+            instrument_name = str(summary.get("instrument_name") or "")
+            parts = instrument_name.split("-")
+            if len(parts) != 4 or parts[0] != "BTC":
                 continue
-            summary = summary_map.get(item["instrument_name"])
-            if not summary:
+            side = "call" if parts[3].upper() == "C" else "put"
+            if side != option_type:
                 continue
-            expiry_ms = int(item["expiration_timestamp"])
+            try:
+                expiry_dt = datetime.strptime(parts[1], "%d%b%y").replace(
+                    hour=8, tzinfo=timezone.utc
+                )
+                expiry_ms = int(expiry_dt.timestamp() * 1000)
+                strike = float(parts[2])
+            except (ValueError, TypeError):
+                continue
             dte = (expiry_ms - now_ms) / 86400000.0
             if dte <= 1:
                 continue
-            strike = float(item["strike"])
             iv_pct = float(summary.get("mark_iv") or 0.0)
             bid = float(summary.get("bid_price") or 0.0)
             mark = float(summary.get("mark_price") or 0.0)
@@ -117,7 +121,7 @@ class DeribitProvider:
 
             candidates.append(
                 {
-                    "instrument": item["instrument_name"],
+                    "instrument": instrument_name,
                     "expiry": datetime.fromtimestamp(
                         expiry_ms / 1000, tz=timezone.utc
                     ).date().isoformat(),
@@ -149,7 +153,7 @@ class YahooProvider:
             start=start.date().isoformat(),
             auto_adjust=False,
             actions=True,
-            repair=True,
+            repair=False,
         )
         if frame.empty:
             raise RuntimeError(f"Yahoo returned no history for {symbol}")
