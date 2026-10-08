@@ -145,6 +145,12 @@ function renderDetail() {
     '<span>' + asset.market + '</span>' +
     '<span>' + asset.source_cadence + ' source</span>' +
     '</div>';
+  const valuationNotes = (v.notes || []).length
+    ? '<div class="asset-notes">' + v.notes.map(note => '<p>' + note + '</p>').join("") + '</div>'
+    : "";
+  const localMetric = v.quote_currency && v.quote_currency !== "USD" && v.local_price_return_pct != null
+    ? metric("Asset change (" + v.quote_currency + ")", pct(v.local_price_return_pct), cls(v.local_price_return_pct))
+    : "";
 
   document.getElementById("detail").innerHTML =
     '<div class="detail-head"><div><h2>' + asset.name + '</h2><div class="muted">' +
@@ -152,10 +158,12 @@ function renderDetail() {
     '</div><div class="badge">' + freshness + asset.measurement_window_days + 'D window</div></div>' +
     '<div class="metrics">' +
       metric("Current price (USD" + unitSuffix + ")", "$" + money(v.current_price), "") +
-      metric("Asset value change", pct(v.price_return_pct), cls(v.price_return_pct)) +
-      metric("Cash distributions", pct(v.annualized_cash_yield_pct), "") +
-      metric("Total return CAGR", pct(v.annualized_total_return_pct), cls(v.annualized_total_return_pct)) +
+      localMetric +
+      metric(v.quote_currency && v.quote_currency !== "USD" ? "Asset change (USD)" : "Asset value change", pct(v.price_return_pct), cls(v.price_return_pct)) +
+      metric("Measured cash yield", pct(v.annualized_cash_yield_pct), "") +
+      metric("Total return CAGR (USD)", pct(v.annualized_total_return_pct), cls(v.annualized_total_return_pct)) +
     '</div>' +
+    valuationNotes +
     renderBest(best) +
     optionGuide +
     strategyHtml +

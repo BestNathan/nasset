@@ -176,11 +176,19 @@ def _manual_real_asset_metrics(config: dict, yahoo: YahooProvider) -> tuple[dict
         config["window_days"],
         observations_per_year=12.0,
     )
+    local_metrics = manual_income_metrics(
+        frame,
+        float(payload["annual_cash_yield_pct"]),
+        config["window_days"],
+        observations_per_year=12.0,
+    )
     return metrics, {
         "quote_currency": quote_currency,
         "valuation_currency": "USD",
         "local_current_price": local_current,
         "fx_to_usd": fx_to_usd,
+        "local_price_return_pct": local_metrics["price_return_pct"],
+        "local_annualized_price_return_pct": local_metrics["annualized_price_return_pct"],
         "valuation_unit": payload.get("unit", config.get("unit", "unit")),
         "source": payload.get("source"),
         "source_url": payload.get("source_url"),

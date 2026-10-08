@@ -283,12 +283,29 @@ class YahooProvider:
     def history_usd(self, symbol: str, days: int, currency: str = "USD") -> tuple[pd.DataFrame, dict]:
         local = self.history(symbol, days)
         local_current = float(local["Close"].dropna().iloc[-1])
+        cutoff = local.index[-1] - pd.Timedelta(days=days)
+        local_window = local.loc[local.index >= cutoff]
+        if len(local_window) < 2:
+            local_window = local
+        local_start = float(local_window["Close"].dropna().iloc[0])
+        local_end = float(local_window["Close"].dropna().iloc[-1])
+        local_days = max(
+            (local_window.index[-1] - local_window.index[0]).total_seconds() / 86400.0,
+            1.0,
+        )
+        local_price_return_pct = (local_end / local_start - 1.0) * 100.0
+        local_annualized_price_return_pct = (
+            (local_end / local_start) ** (365.0 / local_days) - 1.0
+        ) * 100.0
+
         if currency.upper() == "USD":
             return local, {
                 "quote_currency": "USD",
                 "valuation_currency": "USD",
                 "local_current_price": local_current,
                 "fx_to_usd": 1.0,
+                "local_price_return_pct": round(local_price_return_pct, 4),
+                "local_annualized_price_return_pct": round(local_annualized_price_return_pct, 4),
             }
 
         fx_symbol = f"{currency.upper()}USD=X"
@@ -305,6 +322,8 @@ class YahooProvider:
             "valuation_currency": "USD",
             "local_current_price": local_current,
             "fx_to_usd": float(rates.iloc[-1]),
+            "local_price_return_pct": round(local_price_return_pct, 4),
+            "local_annualized_price_return_pct": round(local_annualized_price_return_pct, 4),
         }
 
     def option_matrix(
