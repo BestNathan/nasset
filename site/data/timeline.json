@@ -1,4 +1,75 @@
 {
   "schema_version": 1,
-  "assets": {}
+  "assets": {
+    "btc": [
+      {
+        "date": "2026-10-08",
+        "current_asset_value_index": 128.8891,
+        "total_value_index": 128.8891,
+        "price_return_pct": 28.8891,
+        "annualized_cash_yield_pct": 22.509815,
+        "best_strategy": "Covered Call"
+      }
+    ],
+    "spy": [
+      {
+        "date": "2026-10-08",
+        "current_asset_value_index": 103.3936,
+        "total_value_index": 103.6449,
+        "price_return_pct": 3.3936,
+        "annualized_cash_yield_pct": 24.822905,
+        "best_strategy": "Covered Call"
+      }
+    ],
+    "tlt": [
+      {
+        "date": "2026-10-08",
+        "current_asset_value_index": 88.903,
+        "total_value_index": 102.0466,
+        "price_return_pct": -11.097,
+        "annualized_cash_yield_pct": 4.3852,
+        "best_strategy": "Hold for Distributions"
+      }
+    ],
+    "vnq": [
+      {
+        "date": "2026-10-08",
+        "current_asset_value_index": 118.0487,
+        "total_value_index": 132.1323,
+        "price_return_pct": 18.0487,
+        "annualized_cash_yield_pct": 4.6988,
+        "best_strategy": "Hold for Distributions"
+      }
+    ],
+    "sreit": [
+      {
+        "date": "2026-10-08",
+        "current_asset_value_index": 92.7873,
+        "total_value_index": 109.4132,
+        "price_return_pct": -7.2127,
+        "annualized_cash_yield_pct": 5.542,
+        "best_strategy": "Hold for Distributions"
+      }
+    ],
+    "jreit": [
+      {
+        "date": "2026-10-08",
+        "current_asset_value_index": 89.7397,
+        "total_value_index": 102.7277,
+        "price_return_pct": -10.2603,
+        "annualized_cash_yield_pct": 4.3333,
+        "best_strategy": "Hold for Distributions"
+      }
+    ],
+    "infra": [
+      {
+        "date": "2026-10-08",
+        "current_asset_value_index": 147.7051,
+        "total_value_index": 160.7824,
+        "price_return_pct": 47.7051,
+        "annualized_cash_yield_pct": 4.3631,
+        "best_strategy": "Hold for Distributions"
+      }
+    ]
+  }
 }
