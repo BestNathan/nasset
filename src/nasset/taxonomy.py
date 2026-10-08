@@ -15,6 +15,7 @@ CASHFLOW_TAXONOMY = [
             {"id": "sovereign_bonds", "name": "Sovereign Bonds", "examples": ["US Treasuries", "China government bonds"]},
             {"id": "investment_grade_credit", "name": "Investment Grade Credit", "examples": ["AAA / AA / A / BBB corporate bonds"]},
             {"id": "structured_senior_credit", "name": "Senior Structured Credit", "examples": ["AAA CLO"]},
+            {"id": "high_yield_credit", "name": "High Yield Credit", "examples": ["BB / B corporate bonds", "high-yield ETFs"]},
         ],
     },
     {
@@ -31,7 +32,7 @@ CASHFLOW_TAXONOMY = [
             {"id": "preferred_hybrid", "name": "Preferred & Hybrid", "examples": ["preferred stock", "AT1 / hybrids"]},
             {"id": "reit", "name": "Listed REITs", "examples": ["US REIT", "S-REIT", "J-REIT", "China REITs"]},
             {"id": "private_credit", "name": "Listed Private Credit", "examples": ["BDC"]},
-            {"id": "infrastructure", "name": "Infrastructure & Utilities", "examples": ["pipelines", "utilities", "listed infrastructure"]},
+            {"id": "infrastructure", "name": "Infrastructure & Utilities", "examples": ["pipelines", "utilities", "listed infrastructure", "MLPs"]},
         ],
     },
     {

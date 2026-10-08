@@ -25,6 +25,7 @@ function render() {
   document.getElementById("freshness").innerHTML = "Generated<br><strong>" + new Date(s.generated_at).toLocaleString() + "</strong>";
   renderSummary();
   renderRiskLadder();
+  renderYieldLadder();
   renderNav();
   renderDetail();
 }
@@ -80,6 +81,51 @@ function renderRiskLadder() {
     '<p>This is a conceptual progression in cashflow complexity and actively assumed risk, not a universal probability-of-loss rating. Duration, leverage and valuation can still make a lower layer volatile.</p></div>' +
     '<div class="risk-grid">' + html + '</div>';
 }
+
+function renderYieldLadder() {
+  const assets = (state.snapshot.assets || []).slice().sort((a, b) => {
+    if (a.risk_level !== b.risk_level) return a.risk_level - b.risk_level;
+    return Number((b.best_strategy || {}).annualized_cash_yield_pct || -Infinity) -
+      Number((a.best_strategy || {}).annualized_cash_yield_pct || -Infinity);
+  });
+
+  const rows = assets.map(asset => {
+    const v = asset.valuation || {};
+    const best = asset.best_strategy || {};
+    const localReturn = v.quote_currency && v.quote_currency !== "USD" && v.local_price_return_pct != null
+      ? pct(v.local_price_return_pct) + " " + v.quote_currency
+      : "—";
+    const usdReturn = v.price_return_pct != null ? pct(v.price_return_pct) : "—";
+    const total = v.annualized_total_return_pct != null ? pct(v.annualized_total_return_pct) : "—";
+    const cash = best.annualized_cash_yield_pct != null ? pct(best.annualized_cash_yield_pct) : "—";
+    return '<tr class="yield-row" data-asset="' + asset.id + '">' +
+      '<td><span class="layer-pill">L' + asset.risk_level + '</span></td>' +
+      '<td class="yield-asset"><strong>' + asset.name + '</strong><small>' + asset.subcategory_name + ' · ' + asset.market + '</small></td>' +
+      '<td>' + cash + '</td>' +
+      '<td class="' + cls(v.price_return_pct) + '">' + usdReturn + '</td>' +
+      '<td>' + localReturn + '</td>' +
+      '<td class="' + cls(v.annualized_total_return_pct) + '">' + total + '</td>' +
+      '<td>' + asset.source_cadence + '</td>' +
+    '</tr>';
+  }).join("");
+
+  document.getElementById("yieldLadder").innerHTML =
+    '<div class="yield-head"><div><div class="eyebrow">CASHFLOW OPPORTUNITY SET</div><h2>Yield by risk layer</h2></div>' +
+    '<p>Cash yield is shown separately from principal movement. Click any row to open the asset view. Option overlays show the currently selected risk-adjusted matrix cell.</p></div>' +
+    '<div class="yield-table-wrap"><table class="yield-table"><thead><tr>' +
+      '<th>Layer</th><th>Asset</th><th>Cash Yield</th><th>Asset Δ USD</th><th>Asset Δ Local</th><th>Total CAGR USD</th><th>Source</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+
+  document.querySelectorAll(".yield-row").forEach(row => {
+    row.addEventListener("click", () => {
+      state.selected = row.dataset.asset;
+      renderNav();
+      renderDetail();
+      document.getElementById("detail").scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
+}
+
 
 function renderNav() {
   const taxonomy = state.snapshot.taxonomy || [];

@@ -12,7 +12,7 @@ nasset keeps three questions separate:
 
 nasset organizes assets by the **source and complexity of cashflow**, with a conceptual risk progression:
 
-1. **Contractual Income** — cash / short rates, sovereign bonds, investment-grade credit, senior structured credit.
+1. **Contractual Income** — cash / short rates, sovereign bonds, investment-grade credit, senior structured credit and high-yield credit.
 2. **Productive Distribution** — dividend equities & banks, preferred/hybrid, listed REITs, BDC/private credit, infrastructure & utilities.
 3. **Illiquid Real Assets** — direct property, farmland, timberland, royalties and private real assets.
 4. **Engineered Yield** — option overlays, staking, lending/carry and basis/relative-value strategies.
@@ -25,14 +25,25 @@ This is not a universal probability-of-loss rating. Long-duration sovereign bond
 |---|---|---:|---|
 | Bitcoin | Deribit BTC | 90D | covered call + cash-secured put matrices |
 | S&P 500 | SPY / CBOE | 90D | covered call + cash-secured put matrices |
+| US 0–3M Treasury | SGOV | 3Y | distributions |
 | US long Treasury | TLT | 3Y | distributions |
+| China 5Y government bond | 511010.SS | 3Y | distributions |
+| US investment-grade credit | LQD | 3Y | distributions |
+| AAA CLO | JAAA | 3Y | distributions |
+| US high-yield credit | HYG | 3Y | distributions |
 | ICBC A | 601398.SS | 3Y | dividends |
 | China Construction Bank A | 601939.SS | 3Y | dividends |
 | China Merchants Bank A | 600036.SS | 3Y | dividends |
+| China Dividend ETF | 510880.SS | 3Y | distributions |
+| US preferred stock | PFF | 3Y | distributions |
+| US BDC | BIZD | 3Y | distributions |
 | US REIT | VNQ | 3Y | distributions |
 | Singapore REIT | CLR.SI | 3Y | distributions |
 | Japan REIT | 1343.T | 3Y | distributions |
+| China REIT · Logistics | 508056.SS | 3Y | distributions |
+| China REIT · Toll Road | 508018.SS | 3Y | distributions |
 | Global infrastructure | IGF | 3Y | distributions |
+| US MLP / pipelines | AMLP | 3Y | distributions |
 | Chongli property benchmark | regional second-hand housing | monthly source / daily snapshot | gross rental yield + property value |
 
 The asset registry is in `src/nasset/engine.py`.
