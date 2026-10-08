@@ -37,7 +37,7 @@ function renderSummary() {
     summaryCard("Assets tracked", String(assets.length), "daily snapshots"),
     summaryCard("Option matrices", String(optionAssets.length * 2), "covered call + cash-secured put"),
     summaryCard("Mean cash yield", pct(avg), "cross-asset, not risk-adjusted"),
-    summaryCard("Highest current", top ? pct(top.best_strategy.annualized_cash_yield_pct) : "—", top ? top.name : "no data")
+    summaryCard("Highest selected yield", top ? pct(top.best_strategy.annualized_cash_yield_pct) : "—", top ? top.name : "no data")
   ].join("");
 }
 
@@ -70,12 +70,17 @@ function renderDetail() {
   const best = asset.best_strategy || {};
   const history = ((state.timeline.assets || {})[asset.id] || []);
   const strategyHtml = (asset.strategies || []).map(renderStrategy).join("");
+  const localMarket = v.quote_currency && v.quote_currency !== "USD"
+    ? " · Local " + v.quote_currency + " " + money(v.local_current_price) +
+      " · FX " + Number(v.fx_to_usd).toFixed(6) + " USD/" + v.quote_currency
+    : "";
+  const freshness = asset.stale ? "STALE · " : "";
 
   document.getElementById("detail").innerHTML =
     '<div class="detail-head"><div><h2>' + asset.name + '</h2><div class="muted">' +
-    asset.description + '</div></div><div class="badge">' + asset.measurement_window_days + 'D window</div></div>' +
+    asset.description + localMarket + '</div></div><div class="badge">' + freshness + asset.measurement_window_days + 'D window</div></div>' +
     '<div class="metrics">' +
-      metric("Current price", money(v.current_price), "") +
+      metric("Current price (USD)", "$" + money(v.current_price), "") +
       metric("Asset value change", pct(v.price_return_pct), cls(v.price_return_pct)) +
       metric("Cash distributions", pct(v.annualized_cash_yield_pct), "") +
       metric("Total return CAGR", pct(v.annualized_total_return_pct), cls(v.annualized_total_return_pct)) +

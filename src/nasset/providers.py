@@ -145,6 +145,124 @@ class DeribitProvider:
         )
 
 
+class CboeProvider:
+    BASE = "https://cdn.cboe.com/api/global/delayed_quotes/options"
+
+    def __init__(self) -> None:
+        self.http = HttpClient()
+
+    def option_matrix(
+        self,
+        symbol: str,
+        rv_pct: float,
+        option_type: str,
+        target_dtes: list[int],
+        target_deltas: list[int],
+        rate: float = 0.04,
+    ) -> dict:
+        payload = self.http.get_json(f"{self.BASE}/{symbol.upper()}.json")
+        data = payload.get("data") or {}
+        options = data.get("options") or []
+        spot = float(
+            data.get("close")
+            or data.get("current_price")
+            or data.get("last")
+            or 0.0
+        )
+        if spot <= 0:
+            raise RuntimeError(f"CBOE returned no usable spot for {symbol}")
+        if not options:
+            raise RuntimeError(f"CBOE returned no option chain for {symbol}")
+
+        today = datetime.now(timezone.utc).date()
+        candidates: list[dict] = []
+        for row in options:
+            instrument_name = str(row.get("option") or "")
+            if len(instrument_name) < 15:
+                continue
+            tail = instrument_name[-15:]
+            try:
+                expiry = datetime.strptime(tail[:6], "%y%m%d").date()
+                cp = tail[6].upper()
+                strike = int(tail[7:]) / 1000.0
+            except (ValueError, TypeError):
+                continue
+
+            side = "call" if cp == "C" else "put" if cp == "P" else ""
+            if side != option_type:
+                continue
+            dte = (expiry - today).days
+            if dte <= 0:
+                continue
+
+            bid = float(row.get("bid") or 0.0)
+            if bid <= 0:
+                continue
+            is_otm = (option_type == "call" and strike > spot) or (
+                option_type == "put" and strike < spot
+            )
+            if not is_otm:
+                continue
+
+            delta = abs(float(row.get("delta") or 0.0))
+            iv_raw = float(row.get("iv") or 0.0)
+            iv_pct = iv_raw * 100.0 if iv_raw > 0 else float("nan")
+            if not math.isfinite(iv_pct) or iv_pct <= 0 or iv_pct > 300:
+                iv_pct = implied_vol_pct_from_price(
+                    bid, spot, strike, dte, option_type, rate=rate
+                )
+            if (
+                not math.isfinite(delta)
+                or delta <= 0
+                or delta >= 1
+            ):
+                delta = abs(
+                    bs_delta(spot, strike, dte, iv_pct, option_type, rate=rate)
+                )
+            if (
+                not math.isfinite(delta)
+                or delta <= 0
+                or delta >= 1
+                or not math.isfinite(iv_pct)
+                or iv_pct <= 0
+                or iv_pct > 300
+            ):
+                continue
+
+            oi = float(row.get("open_interest") or 0.0)
+            volume = float(row.get("volume") or 0.0)
+            liquidity = min(
+                1.0,
+                0.15
+                + 0.55 * math.log1p(max(oi, 0.0)) / math.log1p(10000.0)
+                + 0.30 * math.log1p(max(volume, 0.0)) / math.log1p(5000.0),
+            )
+            capital = spot if option_type == "call" else strike
+            annual_yield = bid / capital * 365.0 / dte * 100.0
+            candidates.append(
+                {
+                    "instrument": instrument_name,
+                    "expiry": expiry.isoformat(),
+                    "dte": float(dte),
+                    "strike": strike,
+                    "delta_abs": delta,
+                    "iv_pct": iv_pct,
+                    "premium": bid,
+                    "premium_currency": "USD/share",
+                    "annualized_yield_pct": annual_yield,
+                    "open_interest": oi,
+                    "volume": volume,
+                    "liquidity": liquidity,
+                    "spot": spot,
+                    "source": "CBOE delayed options",
+                }
+            )
+
+        return _bucket_matrix(
+            candidates, option_type, rv_pct, target_dtes, target_deltas
+        )
+
+
 class YahooProvider:
     def history(self, symbol: str, days: int) -> pd.DataFrame:
         start = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=days + 20)

@@ -7,14 +7,14 @@ from pathlib import Path
 from typing import Any
 
 from .analytics import asset_metrics
-from .providers import DeribitProvider, YahooProvider
+from .providers import CboeProvider, DeribitProvider, YahooProvider
 
 TARGET_DTES = [7, 14, 30, 60, 90]
 TARGET_DELTAS = [5, 10, 15, 20, 25]
 
 ASSETS: list[dict[str, Any]] = [
     {"id":"btc","name":"Bitcoin","symbol":"BTC","currency":"USD","category":"Crypto","liquidity":"high","window_days":90,"provider":"deribit","strategies":["covered_call","cash_secured_put"],"description":"BTC spot plus Deribit option-income overlays."},
-    {"id":"spy","name":"S&P 500","symbol":"SPY","currency":"USD","category":"Equity","liquidity":"high","window_days":90,"provider":"yahoo","strategies":["covered_call","cash_secured_put"],"description":"SPY as a liquid high-quality equity proxy with option overlays."},
+    {"id":"spy","name":"S&P 500","symbol":"SPY","currency":"USD","category":"Equity","liquidity":"high","window_days":90,"provider":"yahoo","option_provider":"cboe","strategies":["covered_call","cash_secured_put"],"description":"SPY as a liquid high-quality equity proxy with option overlays."},
     {"id":"tlt","name":"US Long Treasury","symbol":"TLT","currency":"USD","category":"Government bonds","liquidity":"income","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"20+ year US Treasury ETF proxy; 3-year income and mark-to-market window."},
     {"id":"vnq","name":"US REIT","symbol":"VNQ","currency":"USD","category":"REIT","liquidity":"income","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"Broad US listed real estate proxy."},
     {"id":"sreit","name":"Singapore REIT","symbol":"CLR.SI","currency":"SGD","category":"REIT","liquidity":"income","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"Lion-Phillip S-REIT ETF proxy for Singapore REIT income."},
@@ -25,6 +25,7 @@ ASSETS: list[dict[str, Any]] = [
 
 def collect_snapshot() -> dict:
     deribit = DeribitProvider()
+    cboe = CboeProvider()
     yahoo = YahooProvider()
     assets: list[dict] = []
     errors: list[dict] = []
@@ -48,18 +49,24 @@ def collect_snapshot() -> dict:
             strategies: list[dict] = []
 
             if "covered_call" in config["strategies"]:
-                matrix = (
-                    deribit.option_matrix("call", metrics["realized_vol_pct"], TARGET_DTES, TARGET_DELTAS)
-                    if config["provider"] == "deribit"
-                    else yahoo.option_matrix(config["symbol"], metrics["realized_vol_pct"], "call", TARGET_DTES, TARGET_DELTAS)
+                matrix = _option_matrix(
+                    config,
+                    "call",
+                    metrics["realized_vol_pct"],
+                    deribit,
+                    cboe,
+                    yahoo,
                 )
                 strategies.append({"id":"covered_call","name":"Covered Call","kind":"option_matrix","matrix":matrix})
 
             if "cash_secured_put" in config["strategies"]:
-                matrix = (
-                    deribit.option_matrix("put", metrics["realized_vol_pct"], TARGET_DTES, TARGET_DELTAS)
-                    if config["provider"] == "deribit"
-                    else yahoo.option_matrix(config["symbol"], metrics["realized_vol_pct"], "put", TARGET_DTES, TARGET_DELTAS)
+                matrix = _option_matrix(
+                    config,
+                    "put",
+                    metrics["realized_vol_pct"],
+                    deribit,
+                    cboe,
+                    yahoo,
                 )
                 strategies.append({"id":"cash_secured_put","name":"Cash-Secured Put","kind":"option_matrix","matrix":matrix})
 
@@ -90,12 +97,48 @@ def collect_snapshot() -> dict:
             "high_liquidity_window_days":90,
             "income_asset_window_days":1095,
             "valuation":"Invest 100 at the beginning of the window, hold, do not reinvest distributions, and mark to current value.",
-            "option_income":"Current seller premium proxy (bid when available), mechanically annualized by 365/DTE. Delta is a Black-Scholes proxy. Daily snapshots build the historical estimate series.",
+            "option_income":"Current seller-executable bid is mechanically annualized by 365/DTE. BTC uses Deribit; listed US options prefer CBOE delayed Greeks/quotes with a Yahoo fallback. Daily snapshots build the historical estimate series.",
             "best_strategy":"Option matrices rank premium yield divided by |delta|^1.2, adjusted for DTE, IV versus recent realized volatility, and liquidity.",
         },
         "assets":assets,
         "errors":errors,
     }
+
+
+def _option_matrix(
+    config: dict,
+    option_type: str,
+    rv_pct: float,
+    deribit: DeribitProvider,
+    cboe: CboeProvider,
+    yahoo: YahooProvider,
+) -> dict:
+    if config["provider"] == "deribit":
+        return deribit.option_matrix(
+            option_type, rv_pct, TARGET_DTES, TARGET_DELTAS
+        )
+
+    if config.get("option_provider") == "cboe":
+        try:
+            matrix = cboe.option_matrix(
+                config["symbol"],
+                rv_pct,
+                option_type,
+                TARGET_DTES,
+                TARGET_DELTAS,
+            )
+            if any(cell.get("available") for cell in matrix.get("cells", [])):
+                return matrix
+        except Exception:
+            pass
+
+    return yahoo.option_matrix(
+        config["symbol"],
+        rv_pct,
+        option_type,
+        TARGET_DTES,
+        TARGET_DELTAS,
+    )
 
 
 def _choose_asset_best(strategies: list[dict]) -> dict | None:
