@@ -234,11 +234,9 @@ class YahooProvider:
                 if strike <= 0 or bid <= 0 or not is_otm:
                     continue
 
-                reference_price = (
-                    (bid + ask) / 2.0
-                    if ask >= bid and ask > 0
-                    else max(bid, last)
-                )
+                # Use the seller-executable bid for both income and IV inversion.
+                # Yahoo ask/last fields can contain stale outliers outside US market hours.
+                reference_price = bid
                 iv_pct = implied_vol_pct_from_price(
                     reference_price, spot, strike, dte, option_type, rate=rate
                 )
