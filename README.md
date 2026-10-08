@@ -24,7 +24,9 @@ This is not a universal probability-of-loss rating. Long-duration sovereign bond
 | Asset | Proxy / venue | Window | Cashflow model |
 |---|---|---:|---|
 | Bitcoin | Deribit BTC | 90D | covered call + cash-secured put matrices |
+| Ethereum | Deribit ETH + Lido | 90D | staking + covered call + cash-secured put matrices |
 | S&P 500 | SPY / CBOE | 90D | covered call + cash-secured put matrices |
+| Gold | GLD / CBOE | 90D | covered call + cash-secured put matrices |
 | US 0–3M Treasury | SGOV | 3Y | distributions |
 | US long Treasury | TLT | 3Y | distributions |
 | China 5Y government bond | 511010.SS | 3Y | distributions |
@@ -40,7 +42,11 @@ This is not a universal probability-of-loss rating. Long-duration sovereign bond
 | US REIT | VNQ | 3Y | distributions |
 | Singapore REIT | CLR.SI | 3Y | distributions |
 | Japan REIT | 1343.T | 3Y | distributions |
+| US REIT · Data Center | DLR | 3Y | distributions |
+| China REIT · Data Center | 508060.SS | available history | distributions |
+| US REIT · Logistics | PLD | 3Y | distributions |
 | China REIT · Logistics | 508056.SS | 3Y | distributions |
+| China REIT · Clean Energy | 508016.SS | available history | distributions |
 | China REIT · Toll Road | 508018.SS | 3Y | distributions |
 | Global infrastructure | IGF | 3Y | distributions |
 | US MLP / pipelines | AMLP | 3Y | distributions |
@@ -63,9 +69,9 @@ Cash is not reinvested, so principal movement and cashflow remain visible separa
 
 ### High-liquidity assets
 
-BTC and SPY use the latest **90 days** for principal change and realized-volatility context.
+BTC, ETH, SPY and GLD use the latest **90 days** for principal change and realized-volatility context.
 
-Option matrix cells include selected expiry / strike, delta, IV, seller-executable bid, mechanically annualized premium yield and liquidity. BTC uses Deribit; listed US options prefer CBOE delayed option-chain Greeks and quotes. Ranking starts from premium yield divided by **|delta|^1.2**, then adjusts for DTE, IV versus recent realized volatility, and liquidity.
+Option matrix cells include selected expiry / strike, delta, IV, seller-executable bid, mechanically annualized premium yield and liquidity. BTC and ETH use Deribit; listed US options prefer CBOE delayed option-chain Greeks and quotes. ETH also shows Lido's current stETH 7-day SMA staking APR as a separate cashflow strategy. Ranking starts from premium yield divided by **|delta|^1.2**, then adjusts for DTE, IV versus recent realized volatility, and liquidity.
 
 Daily snapshots build the time series. This lets the dashboard evolve from a point-in-time estimate into a trailing history without changing the schema.
 
@@ -103,7 +109,8 @@ Open `http://localhost:8000`.
 
 ## Data sources
 
-- Deribit public API for BTC price and option-market data.
+- Deribit public API for BTC/ETH price and option-market data.
+- Lido APR API for the current stETH 7-day SMA staking APR.
 - CBOE delayed option-chain API for listed US option quotes, Greeks, open interest and volume.
 - Yahoo Finance through `yfinance` for listed-asset prices, distributions, FX conversion and an option-chain fallback.
 

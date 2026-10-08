@@ -261,7 +261,7 @@ function renderOptionGuide(asset) {
     ["10Δ", "Conservative income", "Far OTM. A common long-horizon income bucket with meaningful buffer."],
     ["15Δ", "Balanced income", "More premium, but the strike starts moving materially closer to spot."],
     ["20Δ", "Income / short vol", "Higher cashflow with noticeably more assignment and convexity risk."],
-    ["30Δ", "Active short vol", "Aggressive. The strike is relatively close to spot; treat it as an active volatility trade."]
+    ["25Δ", "Active short vol", "Aggressive. The strike is relatively close to spot; treat it as an active volatility trade."]
   ];
 
   return '<section class="option-guide">' +
@@ -327,10 +327,12 @@ function renderBest(best) {
 
 function renderStrategy(strategy) {
   if (strategy.kind === "income") {
+    const basis = strategy.yield_basis || "historical cash distributions";
+    const source = strategy.source ? " · " + strategy.source : "";
     return '<h3 class="section-title">' + strategy.name +
-      '</h3><div class="card"><div class="label">Measured annualized distribution yield</div><div class="value">' +
+      '</h3><div class="card"><div class="label">Annualized cash yield / APR</div><div class="value">' +
       pct(strategy.annualized_yield_pct) + '</div><div class="sub">' +
-      strategy.measurement_window_days + 'D measurement window</div></div>';
+      basis + source + '</div></div>';
   }
 
   const matrix = strategy.matrix;

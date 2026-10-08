@@ -30,7 +30,11 @@ CASHFLOW_TAXONOMY = [
         "subcategories": [
             {"id": "dividend_equity", "name": "Dividend Equity & Banks", "examples": ["China banks", "dividend stocks"]},
             {"id": "preferred_hybrid", "name": "Preferred & Hybrid", "examples": ["preferred stock", "AT1 / hybrids"]},
-            {"id": "reit", "name": "Listed REITs", "examples": ["US REIT", "S-REIT", "J-REIT", "China REITs"]},
+            {"id": "reit", "name": "Broad REITs", "examples": ["US REIT", "S-REIT", "J-REIT"]},
+            {"id": "reit_data_center", "name": "REIT · Data Center", "examples": ["DLR", "China data-center REITs"]},
+            {"id": "reit_logistics", "name": "REIT · Logistics & Warehouse", "examples": ["PLD", "warehouse C-REITs"]},
+            {"id": "reit_energy", "name": "REIT · Clean Energy", "examples": ["hydropower", "renewable infrastructure REITs"]},
+            {"id": "reit_transport", "name": "REIT · Toll Road & Transport", "examples": ["expressway REITs", "transport infrastructure"]},
             {"id": "private_credit", "name": "Listed Private Credit", "examples": ["BDC"]},
             {"id": "infrastructure", "name": "Infrastructure & Utilities", "examples": ["pipelines", "utilities", "listed infrastructure", "MLPs"]},
         ],

@@ -44,16 +44,20 @@ class DeribitProvider:
             raise RuntimeError(payload["error"])
         return payload["result"]
 
-    def spot(self) -> float:
-        result = self._call("get_index_price", index_name="btc_usd")
+    def spot(self, currency: str = "BTC") -> float:
+        currency = currency.upper()
+        result = self._call(
+            "get_index_price", index_name=f"{currency.lower()}_usd"
+        )
         return float(result["index_price"])
 
-    def btc_history(self, days: int = 120) -> pd.DataFrame:
+    def crypto_history(self, currency: str, days: int = 120) -> pd.DataFrame:
+        currency = currency.upper()
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
         start_ms = now_ms - days * 86400 * 1000
         result = self._call(
             "get_tradingview_chart_data",
-            instrument_name="BTC-PERPETUAL",
+            instrument_name=f"{currency}-PERPETUAL",
             start_timestamp=start_ms,
             end_timestamp=now_ms,
             resolution="1D",
@@ -62,26 +66,33 @@ class DeribitProvider:
             {"Close": result.get("close", []), "Dividends": 0.0},
             index=pd.to_datetime(result.get("ticks", []), unit="ms", utc=True),
         )
+        if frame.empty:
+            raise RuntimeError(f"Deribit returned no history for {currency}")
         return frame.sort_index()
+
+    def btc_history(self, days: int = 120) -> pd.DataFrame:
+        return self.crypto_history("BTC", days)
 
     def option_matrix(
         self,
+        currency: str,
         option_type: str,
         rv_pct: float,
         target_dtes: list[int],
         target_deltas: list[int],
     ) -> dict:
-        spot = self.spot()
+        currency = currency.upper()
+        spot = self.spot(currency)
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
         summaries = self._call(
-            "get_book_summary_by_currency", currency="BTC", kind="option"
+            "get_book_summary_by_currency", currency=currency, kind="option"
         )
 
         candidates: list[dict] = []
         for summary in summaries:
             instrument_name = str(summary.get("instrument_name") or "")
             parts = instrument_name.split("-")
-            if len(parts) != 4 or parts[0] != "BTC":
+            if len(parts) != 4 or parts[0] != currency:
                 continue
             side = "call" if parts[3].upper() == "C" else "put"
             if side != option_type:
@@ -100,8 +111,8 @@ class DeribitProvider:
             iv_pct = float(summary.get("mark_iv") or 0.0)
             bid = float(summary.get("bid_price") or 0.0)
             mark = float(summary.get("mark_price") or 0.0)
-            premium_btc = bid if bid > 0 else mark
-            if premium_btc <= 0 or iv_pct <= 0:
+            premium_crypto = bid if bid > 0 else mark
+            if premium_crypto <= 0 or iv_pct <= 0:
                 continue
             delta = bs_delta(spot, strike, dte, iv_pct, option_type)
             if not math.isfinite(delta):
@@ -115,9 +126,11 @@ class DeribitProvider:
                 + 0.30 * math.log1p(max(volume, 0.0)) / math.log1p(500.0),
             )
             if option_type == "call":
-                annual_yield = premium_btc * 365.0 / dte * 100.0
+                annual_yield = premium_crypto * 365.0 / dte * 100.0
             else:
-                annual_yield = premium_btc * spot / strike * 365.0 / dte * 100.0
+                annual_yield = (
+                    premium_crypto * spot / strike * 365.0 / dte * 100.0
+                )
 
             candidates.append(
                 {
@@ -129,8 +142,8 @@ class DeribitProvider:
                     "strike": strike,
                     "delta_abs": abs(delta),
                     "iv_pct": iv_pct,
-                    "premium": premium_btc,
-                    "premium_currency": "BTC",
+                    "premium": premium_crypto,
+                    "premium_currency": currency,
                     "annualized_yield_pct": annual_yield,
                     "open_interest": oi,
                     "volume": volume,
@@ -143,6 +156,20 @@ class DeribitProvider:
         return _bucket_matrix(
             candidates, option_type, rv_pct, target_dtes, target_deltas
         )
+
+
+class LidoProvider:
+    APR_SMA = "https://eth-api.lido.fi/v1/protocol/steth/apr/sma"
+
+    def __init__(self) -> None:
+        self.http = HttpClient()
+
+    def staking_apr_sma(self) -> float:
+        payload = self.http.get_json(self.APR_SMA)
+        value = float(((payload.get("data") or {}).get("smaApr")))
+        if not math.isfinite(value) or value <= 0 or value > 50:
+            raise RuntimeError(f"Lido returned invalid staking APR: {value}")
+        return value
 
 
 class CboeProvider:

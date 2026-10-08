@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .analytics import asset_metrics, manual_income_metrics
-from .providers import CboeProvider, DeribitProvider, YahooProvider
+from .providers import CboeProvider, DeribitProvider, LidoProvider, YahooProvider
 from .taxonomy import CASHFLOW_TAXONOMY, taxonomy_index
 
 TARGET_DTES = [7, 14, 30, 60, 90]
@@ -29,18 +29,28 @@ ASSETS: list[dict[str, Any]] = [
     {"id":"china_dividend","name":"China Dividend ETF","symbol":"510880.SS","currency":"CNY","market":"China A","unit":"share","layer_id":"productive","subcategory_id":"dividend_equity","category":"Dividend equity","liquidity":"income","source_cadence":"daily","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"Huatai-PineBridge SSE Dividend ETF; diversified China high-dividend equity benchmark."},
     {"id":"pff","name":"US Preferred Stock","symbol":"PFF","currency":"USD","market":"US","unit":"share","layer_id":"productive","subcategory_id":"preferred_hybrid","category":"Preferred stock","liquidity":"income","source_cadence":"daily","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"Broad US preferred and hybrid securities ETF proxy."},
     {"id":"bizd","name":"US BDC","symbol":"BIZD","currency":"USD","market":"US","unit":"share","layer_id":"productive","subcategory_id":"private_credit","category":"Listed private credit","liquidity":"income","source_cadence":"daily","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"VanEck BDC Income ETF; listed business-development-company/private-credit income proxy."},
-    {"id":"vnq","name":"US REIT","symbol":"VNQ","currency":"USD","market":"US","unit":"share","layer_id":"productive","subcategory_id":"reit","category":"REIT","liquidity":"income","source_cadence":"daily","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"Broad US listed real estate proxy."},
-    {"id":"sreit","name":"Singapore REIT","symbol":"CLR.SI","currency":"SGD","market":"Singapore","unit":"share","layer_id":"productive","subcategory_id":"reit","category":"REIT","liquidity":"income","source_cadence":"daily","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"Lion-Phillip S-REIT ETF proxy for Singapore REIT income."},
-    {"id":"jreit","name":"Japan REIT","symbol":"1343.T","currency":"JPY","market":"Japan","unit":"share","layer_id":"productive","subcategory_id":"reit","category":"REIT","liquidity":"income","source_cadence":"daily","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"NEXT FUNDS Tokyo Stock Exchange REIT Index ETF proxy."},
-    {"id":"china_reit_logistics","name":"China REIT · Logistics","symbol":"508056.SS","currency":"CNY","market":"China REIT","unit":"share","layer_id":"productive","subcategory_id":"reit","category":"C-REIT logistics","liquidity":"income","source_cadence":"daily","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"CICC GLP REIT; China public REIT backed by warehousing and logistics assets."},
-    {"id":"china_reit_toll","name":"China REIT · Toll Road","symbol":"508018.SS","currency":"CNY","market":"China REIT","unit":"share","layer_id":"productive","subcategory_id":"reit","category":"C-REIT toll road","liquidity":"income","source_cadence":"daily","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"ChinaAMC China Communications Construction Expressway REIT; toll-road cashflow benchmark."},
+    {"id":"vnq","name":"US REIT","symbol":"VNQ","currency":"USD","market":"US","unit":"share","layer_id":"productive","subcategory_id":"reit","category":"Broad REIT","liquidity":"income","source_cadence":"daily","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"Broad US listed real estate proxy."},
+    {"id":"sreit","name":"Singapore REIT","symbol":"CLR.SI","currency":"SGD","market":"Singapore","unit":"share","layer_id":"productive","subcategory_id":"reit","category":"Broad REIT","liquidity":"income","source_cadence":"daily","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"Lion-Phillip S-REIT ETF proxy for Singapore REIT income."},
+    {"id":"jreit","name":"Japan REIT","symbol":"1343.T","currency":"JPY","market":"Japan","unit":"share","layer_id":"productive","subcategory_id":"reit","category":"Broad REIT","liquidity":"income","source_cadence":"daily","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"NEXT FUNDS Tokyo Stock Exchange REIT Index ETF proxy."},
+
+    {"id":"dlr","name":"US REIT · Data Center","symbol":"DLR","currency":"USD","market":"US","unit":"share","layer_id":"productive","subcategory_id":"reit_data_center","category":"Data center REIT","liquidity":"income","source_cadence":"daily","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"Digital Realty; listed data-center REIT backed by colocation and hyperscale infrastructure."},
+    {"id":"china_reit_datacenter","name":"China REIT · Data Center","symbol":"508060.SS","currency":"CNY","market":"China REIT","unit":"share","layer_id":"productive","subcategory_id":"reit_data_center","category":"C-REIT data center","liquidity":"income","source_cadence":"daily","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"Southern GDS Data Center REIT; China public REIT backed by data-center infrastructure."},
+
+    {"id":"pld","name":"US REIT · Logistics","symbol":"PLD","currency":"USD","market":"US","unit":"share","layer_id":"productive","subcategory_id":"reit_logistics","category":"Logistics REIT","liquidity":"income","source_cadence":"daily","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"Prologis; global logistics and warehouse REIT."},
+    {"id":"china_reit_logistics","name":"China REIT · Logistics","symbol":"508056.SS","currency":"CNY","market":"China REIT","unit":"share","layer_id":"productive","subcategory_id":"reit_logistics","category":"C-REIT logistics","liquidity":"income","source_cadence":"daily","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"CICC GLP REIT; China public REIT backed by warehousing and logistics assets."},
+
+    {"id":"china_reit_clean_energy","name":"China REIT · Clean Energy","symbol":"508016.SS","currency":"CNY","market":"China REIT","unit":"share","layer_id":"productive","subcategory_id":"reit_energy","category":"C-REIT clean energy","liquidity":"income","source_cadence":"daily","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"ChinaAMC Huadian Clean Energy REIT; clean-energy infrastructure cashflow proxy."},
+
+    {"id":"china_reit_toll","name":"China REIT · Toll Road","symbol":"508018.SS","currency":"CNY","market":"China REIT","unit":"share","layer_id":"productive","subcategory_id":"reit_transport","category":"C-REIT toll road","liquidity":"income","source_cadence":"daily","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"ChinaAMC China Communications Construction Expressway REIT; toll-road cashflow benchmark."},
     {"id":"infra","name":"Global Infrastructure","symbol":"IGF","currency":"USD","market":"Global","unit":"share","layer_id":"productive","subcategory_id":"infrastructure","category":"Infrastructure","liquidity":"income","source_cadence":"daily","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"Global infrastructure equities as a listed real-asset proxy."},
     {"id":"amlp","name":"US MLP / Pipelines","symbol":"AMLP","currency":"USD","market":"US","unit":"share","layer_id":"productive","subcategory_id":"infrastructure","category":"MLP / pipelines","liquidity":"income","source_cadence":"daily","window_days":1095,"provider":"yahoo","strategies":["distributions"],"description":"US midstream MLP and pipeline income proxy."},
 
     {"id":"chongli_property","name":"Chongli Property Benchmark","symbol":"CHONGLI-RESI","currency":"CNY","market":"China · Hebei · Chongli","unit":"m²","layer_id":"real_assets","subcategory_id":"direct_property","category":"Direct property","liquidity":"illiquid","source_cadence":"monthly","window_days":1095,"provider":"manual_real_asset","data_file":"data/manual/chongli.json","strategies":["rental_income"],"description":"Chongli district second-hand residential benchmark; combines regional price change with a gross rental-yield benchmark."},
 
-    {"id":"btc","name":"Bitcoin","symbol":"BTC","currency":"USD","market":"Crypto","unit":"BTC","layer_id":"engineered","subcategory_id":"option_overlay","category":"Crypto option overlay","liquidity":"high","source_cadence":"daily","window_days":90,"provider":"deribit","strategies":["covered_call","cash_secured_put"],"description":"BTC spot plus Deribit option-income overlays."},
+    {"id":"btc","name":"Bitcoin","symbol":"BTC","currency":"USD","market":"Crypto","unit":"BTC","layer_id":"engineered","subcategory_id":"option_overlay","category":"Crypto option overlay","liquidity":"high","source_cadence":"daily","window_days":90,"provider":"deribit","crypto_currency":"BTC","strategies":["covered_call","cash_secured_put"],"description":"BTC spot plus Deribit option-income overlays."},
+    {"id":"eth","name":"Ethereum","symbol":"ETH","currency":"USD","market":"Crypto","unit":"ETH","layer_id":"engineered","subcategory_id":"staking","category":"ETH staking + option overlay","liquidity":"high","source_cadence":"daily","window_days":90,"provider":"deribit","crypto_currency":"ETH","strategies":["staking","covered_call","cash_secured_put"],"description":"ETH spot with Lido stETH staking APR plus Deribit option-income overlays."},
     {"id":"spy","name":"S&P 500","symbol":"SPY","currency":"USD","market":"US","unit":"share","layer_id":"engineered","subcategory_id":"option_overlay","category":"Equity option overlay","liquidity":"high","source_cadence":"daily","window_days":90,"provider":"yahoo","option_provider":"cboe","strategies":["covered_call","cash_secured_put"],"description":"SPY as a liquid equity underlying with option-income overlays."},
+    {"id":"gld","name":"Gold","symbol":"GLD","currency":"USD","market":"US","unit":"share","layer_id":"engineered","subcategory_id":"option_overlay","category":"Gold option overlay","liquidity":"high","source_cadence":"daily","window_days":90,"provider":"yahoo","option_provider":"cboe","strategies":["covered_call","cash_secured_put"],"description":"SPDR Gold Shares as a liquid gold proxy with listed option-income overlays."},
 ]
 
 
@@ -48,6 +58,7 @@ ASSETS: list[dict[str, Any]] = [
 def collect_snapshot() -> dict:
     deribit = DeribitProvider()
     cboe = CboeProvider()
+    lido = LidoProvider()
     yahoo = YahooProvider()
     taxonomy = taxonomy_index()
     assets: list[dict] = []
@@ -56,7 +67,10 @@ def collect_snapshot() -> dict:
     for config in ASSETS:
         try:
             if config["provider"] == "deribit":
-                history = deribit.btc_history(days=config["window_days"] + 25)
+                crypto_currency = config.get("crypto_currency", config["symbol"]).upper()
+                history = deribit.crypto_history(
+                    crypto_currency, days=config["window_days"] + 25
+                )
                 market_meta = {
                     "quote_currency": "USD",
                     "valuation_currency": "USD",
@@ -64,6 +78,7 @@ def collect_snapshot() -> dict:
                     "fx_to_usd": 1.0,
                     "valuation_unit": config.get("unit", "unit"),
                     "source_cadence": config.get("source_cadence", "daily"),
+                    "source": "Deribit public API",
                 }
                 metrics = asset_metrics(history, config["window_days"])
             elif config["provider"] == "manual_real_asset":
@@ -80,6 +95,26 @@ def collect_snapshot() -> dict:
                 })
             metrics.update(market_meta)
             strategies: list[dict] = []
+
+            if "staking" in config["strategies"]:
+                try:
+                    staking_apr = lido.staking_apr_sma()
+                    strategies.append({
+                        "id":"staking",
+                        "name":"stETH Staking",
+                        "kind":"income",
+                        "annualized_yield_pct":round(staking_apr, 4),
+                        "measurement_window_days":7,
+                        "yield_basis":"Lido stETH 7-day SMA APR",
+                        "source":"Lido APR API",
+                    })
+                except Exception as exc:
+                    errors.append({
+                        "asset_id":config["id"],
+                        "symbol":config["symbol"],
+                        "strategy_id":"staking",
+                        "error":f"{type(exc).__name__}: {exc}",
+                    })
 
             if "covered_call" in config["strategies"]:
                 matrix = _option_matrix(
@@ -149,7 +184,8 @@ def collect_snapshot() -> dict:
             "high_liquidity_window_days":90,
             "income_asset_window_days":1095,
             "valuation":"Invest 100 at the beginning of the window, hold, do not reinvest distributions, and mark to current value.",
-            "option_income":"Current seller-executable bid is mechanically annualized by 365/DTE. BTC uses Deribit; listed US options prefer CBOE delayed Greeks/quotes with a Yahoo fallback. Daily snapshots build the historical estimate series.",
+            "option_income":"Current seller-executable bid is mechanically annualized by 365/DTE. BTC and ETH use Deribit; listed US options prefer CBOE delayed Greeks/quotes with a Yahoo fallback. Daily snapshots build the historical estimate series.",
+            "staking_income":"ETH staking uses the current Lido stETH 7-day simple-moving-average APR; it is a protocol yield estimate, not a guaranteed return.",
             "best_strategy":"Option matrices rank premium yield divided by |delta|^1.2, adjusted for DTE, IV versus recent realized volatility, and liquidity.",
             "risk_ladder":"Layers 1→4 are a conceptual progression in cashflow complexity, operating dependence, illiquidity and actively sold risk. They are not universal loss-probability ratings.",
         },
@@ -220,7 +256,11 @@ def _option_matrix(
 ) -> dict:
     if config["provider"] == "deribit":
         return deribit.option_matrix(
-            option_type, rv_pct, TARGET_DTES, TARGET_DELTAS
+            config.get("crypto_currency", config["symbol"]),
+            option_type,
+            rv_pct,
+            TARGET_DTES,
+            TARGET_DELTAS,
         )
 
     if config.get("option_provider") == "cboe":
