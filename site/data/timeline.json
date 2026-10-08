@@ -4,10 +4,10 @@
     "btc": [
       {
         "date": "2026-10-08",
-        "current_asset_value_index": 128.8158,
-        "total_value_index": 128.8158,
-        "price_return_pct": 28.8158,
-        "annualized_cash_yield_pct": 5.065321,
+        "current_asset_value_index": 128.8564,
+        "total_value_index": 128.8564,
+        "price_return_pct": 28.8564,
+        "annualized_cash_yield_pct": 5.066582,
         "best_strategy": "Cash-Secured Put"
       }
     ],
