@@ -162,6 +162,33 @@ class YahooProvider:
         frame.index = pd.to_datetime(frame.index, utc=True)
         return frame[["Close", "Dividends"]].sort_index()
 
+    def history_usd(self, symbol: str, days: int, currency: str = "USD") -> tuple[pd.DataFrame, dict]:
+        local = self.history(symbol, days)
+        local_current = float(local["Close"].dropna().iloc[-1])
+        if currency.upper() == "USD":
+            return local, {
+                "quote_currency": "USD",
+                "valuation_currency": "USD",
+                "local_current_price": local_current,
+                "fx_to_usd": 1.0,
+            }
+
+        fx_symbol = f"{currency.upper()}USD=X"
+        fx = self.history(fx_symbol, days)
+        rates = fx["Close"].reindex(local.index, method="ffill").bfill()
+        if rates.isna().any():
+            raise RuntimeError(f"missing FX conversion data for {currency}/USD")
+
+        converted = local.copy()
+        converted["Close"] = converted["Close"] * rates
+        converted["Dividends"] = converted["Dividends"].fillna(0.0) * rates
+        return converted, {
+            "quote_currency": currency.upper(),
+            "valuation_currency": "USD",
+            "local_current_price": local_current,
+            "fx_to_usd": float(rates.iloc[-1]),
+        }
+
     def option_matrix(
         self,
         symbol: str,
@@ -200,11 +227,20 @@ class YahooProvider:
                 strike = float(row.get("strike") or 0.0)
                 iv_pct = float(row.get("impliedVolatility") or 0.0) * 100.0
                 bid = float(row.get("bid") or 0.0)
-                ask = float(row.get("ask") or 0.0)
-                last = float(row.get("lastPrice") or 0.0)
-                premium = bid if bid > 0 else ((bid + ask) / 2.0 if ask > 0 else last)
-                if strike <= 0 or iv_pct <= 0 or premium <= 0:
+                iv_floor = max(5.0, rv_pct * 0.60)
+                iv_ceiling = max(200.0, rv_pct * 8.0)
+                is_otm = (option_type == "call" and strike > spot) or (
+                    option_type == "put" and strike < spot
+                )
+                if (
+                    strike <= 0
+                    or bid <= 0
+                    or not is_otm
+                    or iv_pct < iv_floor
+                    or iv_pct > iv_ceiling
+                ):
                     continue
+                premium = bid
                 delta = bs_delta(spot, strike, dte, iv_pct, option_type, rate=rate)
                 if not math.isfinite(delta):
                     continue
@@ -269,6 +305,17 @@ def _bucket_matrix(
             selected = min(
                 same_expiry, key=lambda c: abs(c["delta_abs"] - target)
             ).copy()
+            tolerance = max(0.025, target * 0.35)
+            if abs(selected["delta_abs"] - target) > tolerance:
+                cells.append(
+                    {
+                        "target_dte": target_dte,
+                        "target_delta_pct": target_delta,
+                        "available": False,
+                        "reason": "no option close enough to target delta",
+                    }
+                )
+                continue
             selected["target_dte"] = target_dte
             selected["target_delta_pct"] = target_delta
             selected["available"] = True
@@ -293,10 +340,10 @@ def _bucket_matrix(
         "target_dtes": target_dtes,
         "target_deltas_pct": target_deltas,
         "cells": cells,
-        "best_risk_adjusted": best_cell(cells, "score"),
+        "best_risk_adjusted": best_cell(cells, "raw_score"),
         "highest_cash_yield": best_cell(cells, "annualized_yield_pct"),
         "score_method": (
-            "annualized premium yield per unit of |delta|, adjusted for DTE, "
+            "annualized premium yield divided by |delta|^1.2, adjusted for DTE, "
             "IV-vs-realized-vol edge, and liquidity"
         ),
     }
