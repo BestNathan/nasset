@@ -3,6 +3,13 @@ const state = { snapshot: null, timeline: null, selected: null };
 const pct = (v) => v == null || Number.isNaN(Number(v)) ? "—" : Number(v).toFixed(2) + "%";
 const money = (v) => v == null || Number.isNaN(Number(v)) ? "—" : Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 });
 const cls = (v) => Number(v) >= 0 ? "good" : "bad";
+const signedPct = (v) => (Number(v) >= 0 ? "+" : "") + Number(v).toFixed(1) + "%";
+const attr = (value) => String(value)
+  .replaceAll("&", "&amp;")
+  .replaceAll('"', "&quot;")
+  .replaceAll("<", "&lt;")
+  .replaceAll(">", "&gt;")
+  .replaceAll("\n", "&#10;");
 
 async function boot() {
   const snapshotResponse = await fetch("./data/latest.json", { cache: "no-store" });
@@ -70,6 +77,7 @@ function renderDetail() {
   const best = asset.best_strategy || {};
   const history = ((state.timeline.assets || {})[asset.id] || []);
   const strategyHtml = (asset.strategies || []).map(renderStrategy).join("");
+  const optionGuide = renderOptionGuide(asset);
   const localMarket = v.quote_currency && v.quote_currency !== "USD"
     ? " · Local " + v.quote_currency + " " + money(v.local_current_price) +
       " · FX " + Number(v.fx_to_usd).toFixed(6) + " USD/" + v.quote_currency
@@ -86,6 +94,7 @@ function renderDetail() {
       metric("Total return CAGR", pct(v.annualized_total_return_pct), cls(v.annualized_total_return_pct)) +
     '</div>' +
     renderBest(best) +
+    optionGuide +
     strategyHtml +
     '<h3 class="section-title">Daily history</h3>' +
     '<div class="charts"><div class="chart-card"><h4>Current asset value index</h4>' +
@@ -101,6 +110,68 @@ function renderDetail() {
 function metric(label, value, klass) {
   return '<div class="metric"><div class="label">' + label + '</div><div class="num ' +
     (klass || "") + '">' + value + '</div></div>';
+}
+
+function renderOptionGuide(asset) {
+  const hasOptions = (asset.strategies || []).some(strategy => strategy.kind === "option_matrix");
+  if (!hasOptions) return "";
+
+  const bands = [
+    ["5Δ", "Tail harvesting", "Very far OTM. Low premium, large price buffer, minimal convexity sold."],
+    ["10Δ", "Conservative income", "Far OTM. A common long-horizon income bucket with meaningful buffer."],
+    ["15Δ", "Balanced income", "More premium, but the strike starts moving materially closer to spot."],
+    ["20Δ", "Income / short vol", "Higher cashflow with noticeably more assignment and convexity risk."],
+    ["30Δ", "Active short vol", "Aggressive. The strike is relatively close to spot; treat it as an active volatility trade."]
+  ];
+
+  return '<section class="option-guide">' +
+    '<div class="option-guide-head"><div><div class="label">How to read the option matrix</div>' +
+    '<h3>DTE × Delta stays fixed; price location moves with the market.</h3></div>' +
+    '<div class="guide-formula"><span>Delta ↑</span><b>→</b><span>strike closer</span><b>→</b><span>premium ↑</span><b>→</b><span>convexity sold ↑</span></div></div>' +
+    '<div class="guide-copy"><p><strong>DTE</strong> is days to expiry. <strong>Delta</strong> is the option sensitivity bucket: a 5Δ call is roughly +0.05 delta and a 5Δ put roughly −0.05 delta. For income strategies, lower delta generally means a farther OTM strike and more price room.</p>' +
+    '<p>Delta is useful because it already reflects spot, strike, volatility and time. It can be used as a rough risk coordinate, but <strong>5Δ does not mean “95% guaranteed win”</strong> and is not a literal true probability.</p>' +
+    '<p class="guide-hint">Hover a Delta column header to see today’s approximate strike / price location for every DTE in that column. Hover a matrix cell for the exact selected contract.</p></div>' +
+    '<div class="delta-bands">' +
+      bands.map(([delta, title, text]) =>
+        '<div class="delta-band"><div class="delta-band-top"><strong>' + delta + '</strong><span>' + title + '</span></div><p>' + text + '</p></div>'
+      ).join("") +
+    '</div></section>';
+}
+
+function deltaHeaderTooltip(matrix, targetDelta) {
+  const side = matrix.option_type === "call" ? "Call" : "Put";
+  const lines = matrix.target_dtes.map(targetDte => {
+    const cell = matrix.cells.find(c =>
+      c.target_dte === targetDte &&
+      c.target_delta_pct === targetDelta &&
+      c.available
+    );
+    if (!cell || !cell.spot || !cell.strike) return targetDte + "D: no liquid match";
+    const distance = (Number(cell.strike) / Number(cell.spot) - 1) * 100;
+    return targetDte + "D: ≈ $" + money(cell.strike) + " (" + signedPct(distance) + " vs spot)";
+  });
+
+  return targetDelta + "Δ " + side +
+    "\nApproximate current strike locations:" +
+    "\n" + lines.join("\n") +
+    "\n\nDelta is a standardized risk bucket, not a guaranteed ITM probability.";
+}
+
+function matrixCellTooltip(cell) {
+  const distance = cell.spot && cell.strike
+    ? (Number(cell.strike) / Number(cell.spot) - 1) * 100
+    : null;
+  return [
+    cell.instrument || "Selected option",
+    "Strike: $" + money(cell.strike) + (distance == null ? "" : " (" + signedPct(distance) + " vs spot)"),
+    "Spot: $" + money(cell.spot),
+    "Actual delta: " + (Number(cell.delta_abs) * 100).toFixed(1) + "Δ",
+    "IV: " + pct(cell.iv_pct),
+    "DTE: " + Number(cell.dte).toFixed(1),
+    "Seller premium: " + money(cell.premium) + " " + (cell.premium_currency || ""),
+    "Mechanical annualized yield: " + pct(cell.annualized_yield_pct),
+    "Source: " + (cell.source || "market data")
+  ].join("\n");
 }
 
 function renderBest(best) {
@@ -125,8 +196,11 @@ function renderStrategy(strategy) {
   const matrix = strategy.matrix;
   const best = matrix.best_risk_adjusted || {};
   const maxYield = Math.max(1, ...matrix.cells.filter(c => c.available).map(c => Number(c.annualized_yield_pct || 0)));
-  const head = '<tr><th>DTE / Delta</th>' +
-    matrix.target_deltas_pct.map(d => '<th>' + d + 'Δ</th>').join("") + '</tr>';
+  const head = '<tr><th class="axis-help" title="DTE = days to expiry. Shorter DTE usually means more gamma risk; longer DTE locks the position for more time.">DTE / Delta</th>' +
+    matrix.target_deltas_pct.map(d =>
+      '<th class="delta-head" title="' + attr(deltaHeaderTooltip(matrix, d)) + '">' +
+      d + 'Δ <span class="hover-mark">⌁</span></th>'
+    ).join("") + '</tr>';
 
   const rows = matrix.target_dtes.map(dte => {
     const cells = matrix.target_deltas_pct.map(delta => {
@@ -137,7 +211,7 @@ function renderStrategy(strategy) {
         best.target_dte === cell.target_dte &&
         best.target_delta_pct === cell.target_delta_pct;
       return '<td class="heat' + (isBest ? ' best-cell' : '') +
-        '" style="--heat:' + heat + '%">' + pct(cell.annualized_yield_pct) +
+        '" title="' + attr(matrixCellTooltip(cell)) + '" style="--heat:' + heat + '%">' + pct(cell.annualized_yield_pct) +
         '<small>' + Number(cell.delta_abs * 100).toFixed(1) + 'Δ · ' +
         Math.round(cell.dte) + 'D</small></td>';
     }).join("");

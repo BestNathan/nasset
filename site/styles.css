@@ -32,3 +32,20 @@ svg{width:100%;height:220px;overflow:visible}.grid-line{stroke:#29292d;stroke-wi
 .method{color:var(--muted);font-size:13px;line-height:1.6;padding:16px 0}.error{color:var(--bad);background:#261313;border:1px solid #542020;border-radius:12px;padding:12px;margin:8px 0}
 footer{display:flex;justify-content:space-between;gap:20px;color:var(--soft);border-top:1px solid var(--line);margin-top:48px;padding-top:20px;font-size:12px}
 @media(max-width:900px){.summary-grid,.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.workspace{grid-template-columns:1fr}.asset-nav{position:static;flex-direction:row;overflow-x:auto;padding-bottom:4px}.asset-btn{min-width:160px}.charts{grid-template-columns:1fr}.hero{align-items:start;flex-direction:column}.freshness{text-align:left}}
+
+.option-guide{margin:18px 0 30px;border:1px solid var(--line);border-radius:18px;background:linear-gradient(180deg,#131315,#0f0f11);padding:20px}
+.option-guide-head{display:flex;justify-content:space-between;gap:24px;align-items:start}
+.option-guide .label{color:var(--accent);font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase}
+.option-guide h3{font-size:22px;letter-spacing:-.025em;margin:7px 0 0}
+.guide-formula{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;align-items:center;color:var(--muted);font-size:12px;padding-top:2px}
+.guide-formula span{border:1px solid var(--line);background:#151517;border-radius:999px;padding:6px 9px}
+.guide-formula b{color:var(--soft);font-weight:500}
+.guide-copy{display:grid;grid-template-columns:1fr 1fr;gap:12px 22px;margin:18px 0;color:var(--muted);font-size:13px;line-height:1.65}
+.guide-copy p{margin:0}.guide-copy .guide-hint{grid-column:1/-1;color:#d4d4d8;border-top:1px solid var(--line);padding-top:12px}
+.delta-bands{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+.delta-band{border:1px solid var(--line);border-radius:13px;background:#111113;padding:12px;min-width:0}
+.delta-band-top{display:flex;gap:8px;align-items:baseline}.delta-band-top strong{font-size:17px;color:#fff}.delta-band-top span{font-size:11px;color:var(--accent)}
+.delta-band p{font-size:11px;line-height:1.5;color:var(--soft);margin:7px 0 0}
+.delta-head,.axis-help,.heat{cursor:help}.delta-head{color:#d4d4d8}.delta-head:hover{color:var(--accent);background:#191b13}
+.hover-mark{color:var(--soft);font-size:10px;margin-left:2px}.delta-head:hover .hover-mark{color:var(--accent)}
+@media(max-width:900px){.option-guide-head{flex-direction:column}.guide-formula{justify-content:flex-start}.guide-copy{grid-template-columns:1fr}.guide-copy .guide-hint{grid-column:auto}.delta-bands{grid-template-columns:repeat(2,minmax(0,1fr))}}
