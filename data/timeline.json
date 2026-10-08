@@ -4,11 +4,11 @@
     "btc": [
       {
         "date": "2026-10-08",
-        "current_asset_value_index": 128.8353,
-        "total_value_index": 128.8353,
-        "price_return_pct": 28.8353,
-        "annualized_cash_yield_pct": 3.835376,
-        "best_strategy": "Covered Call"
+        "current_asset_value_index": 128.8345,
+        "total_value_index": 128.8345,
+        "price_return_pct": 28.8345,
+        "annualized_cash_yield_pct": 4.863035,
+        "best_strategy": "Cash-Secured Put"
       }
     ],
     "spy": [
@@ -44,20 +44,20 @@
     "sreit": [
       {
         "date": "2026-10-08",
-        "current_asset_value_index": 92.7873,
-        "total_value_index": 109.4132,
-        "price_return_pct": -7.2127,
-        "annualized_cash_yield_pct": 5.542,
+        "current_asset_value_index": 99.3139,
+        "total_value_index": 116.6266,
+        "price_return_pct": -0.6861,
+        "annualized_cash_yield_pct": 5.7709,
         "best_strategy": "Hold for Distributions"
       }
     ],
     "jreit": [
       {
         "date": "2026-10-08",
-        "current_asset_value_index": 89.7397,
-        "total_value_index": 102.7277,
-        "price_return_pct": -10.2603,
-        "annualized_cash_yield_pct": 4.3333,
+        "current_asset_value_index": 84.5604,
+        "total_value_index": 97.3157,
+        "price_return_pct": -15.4396,
+        "annualized_cash_yield_pct": 4.2556,
         "best_strategy": "Hold for Distributions"
       }
     ],
