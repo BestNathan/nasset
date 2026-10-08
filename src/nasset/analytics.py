@@ -37,6 +37,80 @@ def bs_delta(
     raise ValueError(f"unsupported option type: {option_type}")
 
 
+def bs_price(
+    spot: float,
+    strike: float,
+    dte: float,
+    iv_pct: float,
+    option_type: str,
+    rate: float = 0.0,
+) -> float:
+    if spot <= 0 or strike <= 0 or dte <= 0 or iv_pct <= 0:
+        return float("nan")
+    t = dte / TRADING_DAYS
+    sigma = iv_pct / 100.0
+    root_t = math.sqrt(t)
+    d1 = (
+        math.log(spot / strike) + (rate + 0.5 * sigma * sigma) * t
+    ) / (sigma * root_t)
+    d2 = d1 - sigma * root_t
+    discount = math.exp(-rate * t)
+    if option_type.lower() == "call":
+        return spot * normal_cdf(d1) - strike * discount * normal_cdf(d2)
+    if option_type.lower() == "put":
+        return strike * discount * normal_cdf(-d2) - spot * normal_cdf(-d1)
+    raise ValueError(f"unsupported option type: {option_type}")
+
+
+def implied_vol_pct_from_price(
+    price: float,
+    spot: float,
+    strike: float,
+    dte: float,
+    option_type: str,
+    rate: float = 0.0,
+) -> float:
+    """Invert Black-Scholes with bisection.
+
+    Intended as a robust quote-normalization layer for sources whose published
+    IV field is missing or inconsistent. Returns NaN if no sensible solution
+    exists in the 1%-300% volatility range.
+    """
+    if price <= 0 or spot <= 0 or strike <= 0 or dte <= 0:
+        return float("nan")
+
+    t = dte / TRADING_DAYS
+    discount = math.exp(-rate * t)
+    if option_type.lower() == "call":
+        intrinsic = max(0.0, spot - strike * discount)
+        upper_bound = spot
+    elif option_type.lower() == "put":
+        intrinsic = max(0.0, strike * discount - spot)
+        upper_bound = strike * discount
+    else:
+        raise ValueError(f"unsupported option type: {option_type}")
+
+    if price <= intrinsic or price >= upper_bound:
+        return float("nan")
+
+    low, high = 1.0, 300.0
+    low_price = bs_price(spot, strike, dte, low, option_type, rate)
+    high_price = bs_price(spot, strike, dte, high, option_type, rate)
+    if not (low_price <= price <= high_price):
+        return float("nan")
+
+    for _ in range(80):
+        mid = (low + high) / 2.0
+        value = bs_price(spot, strike, dte, mid, option_type, rate)
+        if abs(value - price) < 1e-6:
+            return mid
+        if value < price:
+            low = mid
+        else:
+            high = mid
+    return (low + high) / 2.0
+
+
 def realized_vol_pct(prices: Iterable[float]) -> float:
     arr = np.asarray(list(prices), dtype=float)
     arr = arr[np.isfinite(arr) & (arr > 0)]
