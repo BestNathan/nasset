@@ -46,7 +46,8 @@ This is not a universal probability-of-loss rating. Long-duration sovereign bond
 | China REIT · Data Center | 508060.SS | available history | distributions |
 | US REIT · Logistics | PLD | 3Y | distributions |
 | China REIT · Logistics | 508056.SS | 3Y | distributions |
-| China REIT · Clean Energy | 508016.SS | available history | distributions |
+| China REIT · Water Utility | 508006.SS | 3Y | distributions |
+| China REIT · Hydropower | 508026.SS | available history | distributions |
 | China REIT · Toll Road | 508018.SS | 3Y | distributions |
 | Global infrastructure | IGF | 3Y | distributions |
 | US MLP / pipelines | AMLP | 3Y | distributions |
