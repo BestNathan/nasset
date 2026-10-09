@@ -105,10 +105,14 @@ def normalize_events(raw_rows):
         if key in seen:
             continue
         seen.add(key)
-        bonus = number(row.get("BONUS_IT_RATIO")) or 0
+        gross_bonus_transfer = number(row.get("BONUS_IT_RATIO")) or 0
         transfer = number(row.get("IT_RATIO")) or 0
-        if bonus < 0 or transfer < 0 or bonus + transfer > 100:
+        # Eastmoney BONUS_IT_RATIO counts ALL delivered shares (bonus + transfer);
+        # IT_RATIO is its transfer component. Adding both double-counts transfers.
+        bonus = gross_bonus_transfer - transfer
+        if bonus < -1e-8 or transfer < 0 or gross_bonus_transfer > 100:
             raise ValueError("invalid share bonus/transfer ratio")
+        bonus = max(0, bonus)
         plan = str(row.get("IMPL_PLAN_PROFILE") or "")
         result.append({
             "fiscal_year": fy,
