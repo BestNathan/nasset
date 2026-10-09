@@ -1,0 +1,37 @@
+"use strict";
+const assert=require("node:assert/strict");
+const fs=require("node:fs");
+const {chromium}=require("playwright");
+
+(async()=>{
+  const browser=await chromium.launch({headless:true});
+  const page=await browser.newPage({viewport:{width:1366,height:900}});
+  const errors=[];
+  page.on("pageerror",err=>errors.push(err.message));
+  await page.goto("http://127.0.0.1:8765/topics.html",{waitUntil:"domcontentloaded"});
+  await page.locator("#topic-nav .topic-nav-row").first().waitFor();
+  assert.equal(await page.locator("#topic-nav .topic-nav-row").count(),78);
+  await page.locator('[data-sector="banking"]').click();
+  assert.equal(await page.locator("#topic-nav .topic-nav-row").count(),42);
+  await page.locator('[data-sector="telecom"]').click();
+  assert.equal(await page.locator("#topic-nav .topic-nav-row").count(),3);
+  await page.locator('[data-sector="all"]').click();
+  await page.locator('[data-select="601398.SS"]').click();
+  assert.match(await page.locator("#topic-detail").innerText(),/工商银行/);
+  await page.locator('[data-comparable="no"]').click();
+  await page.locator('[data-comparable="yes"]').click();
+  await page.locator('[data-reinvest="yes"]').click();
+  assert.match(await page.locator("#topic-detail").innerText(),/再投资总回报/);
+  await page.locator('[data-reinvest="no"]').click();
+  await page.locator('[data-compare="601398.SS"]').check();
+  await page.locator('[data-compare="600900.SS"]').check();
+  assert.match(await page.locator("#topic-compare").innerText(),/长江电力/);
+  assert.match(await page.locator("#topic-compare").innerText(),/工商银行/);
+  fs.mkdirSync("artifacts",{recursive:true});
+  await page.screenshot({path:"artifacts/topics-desktop.png",fullPage:true});
+  await page.setViewportSize({width:390,height:844});
+  await page.screenshot({path:"artifacts/topics-mobile.png",fullPage:true});
+  assert.deepEqual(errors,[],"uncaught browser errors");
+  await browser.close();
+  console.log("Live 78-company browser UI accepted: industries / detail / dividend switches / compare / mobile screenshots");
+})().catch(error=>{console.error(error);process.exit(1);});
