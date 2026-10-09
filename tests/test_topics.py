@@ -133,3 +133,59 @@ def test_holder_class_correction_rejects_vendor_drift():
     altered = module.normalize_events([record(2015, "2016-07-19", 1.40)])
     with pytest.raises(ValueError, match="source has changed"):
         module.apply_verified_corrections(altered, "600900.SS")
+
+
+def test_comparable_dividends_across_bonus_share_change():
+    events = module.normalize_events([
+        record(2015, "2016-05-01", 4.0),
+        record(2018, "2019-05-01", 0, bonus=10),
+        record(2025, "2026-05-01", 10.0),
+    ])
+    adjusted = module.split_adjusted_events(events)
+    assert module.fiscal_history(adjusted)["2015"] == .4
+    assert module.fiscal_history(adjusted, comparable=True)["2015"] == .2
+    assert module.fiscal_history(adjusted, comparable=True)["2025"] == 1.0
+    assert adjusted[0]["current_share_equivalence_factor"] == 2.0
+
+
+def test_cash_reinvestment_uses_whole_lots():
+    dates = pd.date_range("2025-01-02", periods=5, freq="D", tz="Asia/Shanghai")
+    frame = pd.DataFrame({"Close": [10.] * 5}, index=dates)
+    events = module.normalize_events([record(2024, "2025-01-03", 5.0)])
+    s = module.simulate_cashflow(frame, events)
+    assert s["cumulative_cash_cny"] == 50_000
+    assert s["reinvested"]["current_shares_estimated"] == 105_000
+    assert s["reinvested"]["leftover_cash_cny"] == 0.0
+    assert s["reinvested"]["total_return_pct"] == pytest.approx(5.0)
+    assert s["calendar_2025_yield_on_cost_pct"] == 5
+
+
+def test_split_adjusted_yahoo_price_undoes_factor_before_board_lot_purchase():
+    dates = pd.date_range("2025-01-02", periods=5, freq="D", tz="Asia/Shanghai")
+    frame = pd.DataFrame({"Close": [5.] * 5}, index=dates)
+    events = module.normalize_events([record(2024, "2025-01-03", 0, bonus=10)])
+    result = module.simulate_cashflow(frame, events)
+    assert result["initial_price_cny"] == 10.0
+    assert result["initial_shares"] == 100_000
+    assert result["current_shares_estimated"] == 200_000
+    assert result["latest_position_value_cny"] == 1_000_000
+    assert result["total_return_pct_no_reinvest"] == 0
+
+
+def test_realized_risk_fixture_drawdown():
+    dates=pd.date_range("2025-01-01", periods=130, freq="B")
+    prices=[100.,120.,90.] + [90.] * 127
+    result=module.risk_metrics(pd.DataFrame({"Adj Close":prices},index=dates))
+    assert result is not None
+    assert result["max_drawdown_pct"] == pytest.approx(-25.0)
+    assert result["annual_volatility_pct"] > 0
+    assert result["daily_cvar_95_pct"] < 0
+    assert result["rolling_returns"]["10"] is None
+
+
+def test_universe_rejects_non_a_share_symbols():
+    universe=json.loads((ROOT/"data"/"topics-universe.json").read_text())
+    mutated=[dict(x) for x in universe]
+    mutated[0]["symbol"]="1398.HK"
+    with pytest.raises(ValueError,match="not an A-share"):
+        module.validate_universe(mutated)
