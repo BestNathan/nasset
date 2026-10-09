@@ -257,7 +257,12 @@ def risk_metrics(frame):
 
 
 def simulate_cashflow(frame, events, notional=NOTIONAL):
-    """Buy full A-share board lots once, adjust held units after stock bonuses."""
+    """Buy once, handle stock-share changes and optional cash reinvestment.
+
+    Yahoo historical Close is split-adjusted (but not cash-dividend-adjusted).
+    We reconstruct the price of the original share before bonus/transfer
+    events to avoid double-counting share splits in the initial unit count.
+    """
     if frame.empty:
         return None
     close = pd.to_numeric(frame["Close"], errors="coerce").dropna()
@@ -265,40 +270,77 @@ def simulate_cashflow(frame, events, notional=NOTIONAL):
     close = close[close > 0]
     if close.empty:
         return None
-    start_price = float(close.iloc[0])
-    shares = math.floor(notional / (start_price * 100)) * 100
+    start_date = close.index[0].date()
+    end_date = close.index[-1].date()
+    eligible = [e for e in sorted(events, key=lambda item: item["ex_date"])
+                if start_date <= date.fromisoformat(e["ex_date"]) <= end_date]
+    ratios_by_date = {}
+    for e in eligible:
+        if e["bonus_per_ten"] or e["transfer_per_ten"]:
+            ratio = 1 + (e["bonus_per_ten"] + e["transfer_per_ten"]) / 10
+            if e["ex_date"] in ratios_by_date and abs(ratios_by_date[e["ex_date"]] - ratio) > 1e-8:
+                raise ValueError("inconsistent split data for same ex date")
+            ratios_by_date[e["ex_date"]] = ratio
+    total_split_factor = math.prod(ratios_by_date.values())
+    initial_adjusted_price = float(close.iloc[0])
+    raw_start_price = initial_adjusted_price * total_split_factor
+    shares = math.floor(notional / (raw_start_price * 100)) * 100
     if shares <= 0:
         return None
     initial_shares = shares
-    start_date = close.index[0].date()
-    yearly_cash = {str(year): 0.0 for year in range(start_date.year, max(END_YEAR, date.today().year) + 1)}
-    for event in sorted(events, key=lambda item: item["ex_date"]):
-        ex_date = date.fromisoformat(event["ex_date"])
-        if ex_date < start_date or ex_date > date.today():
-            continue
-        key = str(ex_date.year)
-        if key not in yearly_cash:
-            continue
-        yearly_cash[key] += shares * event["cash_per_share_cny"]
-        ratio = 1 + (event["bonus_per_ten"] + event["transfer_per_ten"]) / 10.0
+    reinvested_shares = float(initial_shares)
+    unspent_dividend_cash = 0.0
+    payment_cash = {str(year): 0.0 for year in range(start_date.year, end_date.year + 1)}
+    gross_reinvest_distributions = 0.0
+    grouped_dates = sorted({e["ex_date"] for e in eligible})
+    for day in grouped_dates:
+        daily_events = [e for e in eligible if e["ex_date"] == day]
+        cash_per_pre_split_share = sum(e["cash_per_share_cny"] for e in daily_events)
+        dividend = shares * cash_per_pre_split_share
+        reinvest_dividend = reinvested_shares * cash_per_pre_split_share
+        payment_cash[day[:4]] += dividend
+        gross_reinvest_distributions += reinvest_dividend
+        unspent_dividend_cash += reinvest_dividend
+        ratio = ratios_by_date.get(day, 1.0)
         shares *= ratio
+        reinvested_shares *= ratio
+        later_multiplier = math.prod(value for when, value in ratios_by_date.items() if when > day)
+        when = date.fromisoformat(day)
+        candidate_prices = close.loc[close.index.date >= when]
+        if not candidate_prices.empty and unspent_dividend_cash > 0:
+            unadjusted_trade_price = float(candidate_prices.iloc[0]) * later_multiplier
+            lots = math.floor(unspent_dividend_cash / (unadjusted_trade_price * 100))
+            bought = lots * 100
+            reinvested_shares += bought
+            unspent_dividend_cash -= bought * unadjusted_trade_price
+    final_price = float(close.iloc[-1])
+    contributed = initial_shares * raw_start_price
+    collected = sum(payment_cash.values())
+    hold_value = shares * final_price
+    reinvest_value = reinvested_shares * final_price + unspent_dividend_cash
     return {
         "initial_notional_cny": int(notional),
-        "invested_cny": round(initial_shares * start_price, 2),
+        "invested_cny": round(contributed, 2),
         "start_date": start_date.isoformat(),
-        "initial_price_cny": round(start_price, 4),
+        "end_date": end_date.isoformat(),
+        "initial_price_cny": round(raw_start_price, 4),
         "initial_shares": initial_shares,
         "current_shares_estimated": round(shares, 4),
-        "cashflow_by_payment_year_cny": {y: round(value, 2) for y, value in yearly_cash.items()},
-        "cumulative_cash_cny": round(sum(yearly_cash.values()), 2),
-        "latest_position_value_cny": round(shares * float(close.iloc[-1]), 2),
-        "total_value_cny": round(shares * float(close.iloc[-1]) + sum(yearly_cash.values()), 2),
-        "total_return_pct_no_reinvest": round(
-            (shares * float(close.iloc[-1]) + sum(yearly_cash.values()))
-            / (initial_shares * start_price) * 100 - 100, 3),
-        "calendar_2025_yield_on_cost_pct": round(
-            yearly_cash.get("2025", 0) / (initial_shares * start_price) * 100, 3),
-        "assumptions": "2015 or first listed date, 100-share lots, no reinvestment, before tax/fees; share bonuses inferred only from disclosed events.",
+        "cashflow_by_payment_year_cny": {y: round(v, 2) for y, v in payment_cash.items()},
+        "cumulative_cash_cny": round(collected, 2),
+        "latest_position_value_cny": round(hold_value, 2),
+        "total_value_cny": round(hold_value + collected, 2),
+        "total_return_pct_no_reinvest": round((hold_value + collected) / contributed * 100 - 100, 3),
+        "calendar_2025_yield_on_cost_pct": round(payment_cash.get("2025", 0) / contributed * 100, 3),
+        "reinvested": {
+            "current_shares_estimated": round(reinvested_shares, 4),
+            "leftover_cash_cny": round(unspent_dividend_cash, 2),
+            "position_value_cny": round(reinvest_value, 2),
+            "total_return_pct": round(reinvest_value / contributed * 100 - 100, 3),
+            "dividends_reinvested_gross_cny": round(gross_reinvest_distributions, 2),
+        },
+        "stock_action_factor": round(total_split_factor, 8),
+        "assumptions": "2015 or first listed date, board lots of 100; Yahoo historical split-adjusted Close is reversed using declared bonus/transfer factors; no tax, fees, slippage or rights subscription.",
     }
 
 
