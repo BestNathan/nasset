@@ -1,0 +1,101 @@
+name: Topic quality gate
+on:
+  pull_request:
+    paths:
+      - "scripts/build_topics_dividends.py"
+      - "tests/test_topics.py"
+      - "data/topics-universe.json"
+      - "site/topics.*"
+      - ".github/workflows/topics-check.yml"
+      - ".github/workflows/daily.yml"
+      - "pyproject.toml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Dependencies
+        run: pip install -e ".[dev]"
+      - name: Python tests
+        run: pytest -q
+      - name: Static JS syntax
+        run: node --check site/topics.js
+      - name: Frontend smoke fixture
+        run: node tests/test_topics_ui.cjs
+      - name: Python compile
+        run: python -m py_compile scripts/build_topics_dividends.py
+
+  live-source-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Dependencies
+        run: pip install -e ".[dev]"
+      - name: Verify one real dividend and price feed
+        run: |
+          python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location("topics", Path("scripts/build_topics_dividends.py"))
+          m = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(m)
+          events = m.normalize_events(m.eastmoney_history("601398.SS"))
+          print("ICBC dividend event rows:", len(events))
+          assert events, "Eastmoney did not return implemented cash dividends"
+          frame, price = m.fetch_prices("601398.SS")
+          print("ICBC latest A-share price:", price)
+          assert price["close_cny"] > 0
+          PY
+
+  full-data-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Dependencies
+        run: pip install -e ".[dev]"
+      - name: Run full historical build
+        env:
+          TOPICS_WORKERS: "5"
+        run: python scripts/build_topics_dividends.py
+      - name: Assert factual coverage
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open("site/data/topics-dividends.json"))
+          coverage=d["coverage"]
+          print("Coverage:", coverage, "Universe:", d["universe_size"])
+          assert d["universe_size"] == 78
+          assert coverage["fresh_dividends"] >= 65, "insufficient successful dividend coverage"
+          assert coverage["priced"] >= 65, "insufficient successful price coverage"
+          assert len(d["stocks"]) == 78
+          for code,stock in d["stocks"].items():
+              for yr,amount in stock.get("years", {}).items():
+                  assert 2015 <= int(yr) <= 2025 and amount >= 0, code
+          PY
+      - name: Upload integration snapshot for auditing
+        uses: actions/upload-artifact@v4
+        with:
+          name: topic-data-integration
+          path: |
+            site/data/topics-dividends.json
+            site/data/topics-universe.json

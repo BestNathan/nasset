@@ -44,6 +44,18 @@ jobs:
       - name: Generate daily snapshot
         run: python -m nasset --root .
 
+      - name: Generate dividend topic history
+        run: python scripts/build_topics_dividends.py
+
+      - name: Verify dividend research coverage
+        run: |
+          python - <<'PY'
+          import json
+          d = json.load(open("site/data/topics-dividends.json"))
+          assert d["universe_size"] == 78
+          assert d["coverage"]["fresh_dividends"] + d["coverage"]["stale_dividends"] > 0
+          PY
+
       - name: Persist daily history
         run: |
           git config user.name "nasset-bot"

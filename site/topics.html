@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>A股高股息专题 · nasset</title>
+  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./topics.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <div class="eyebrow">NASSET / A-SHARE DIVIDEND OBSERVATORY</div>
+        <h1>A股高股息专题</h1>
+        <p>银行、电信与基础设施。比较十年分红、现金流增长与本金风险，而不将历史表现当作未来承诺。</p>
+        <a href="./index.html" class="topic-back">← 返回资产总览</a>
+      </div>
+      <div id="topic-freshness" class="freshness">读取数据中…</div>
+    </header>
+    <section id="topic-stats" class="summary-grid" aria-label="数据覆盖概览"></section>
+    <section class="topic-toolbar" aria-label="行业筛选">
+      <div id="topic-industries" class="topic-filters"></div>
+      <label>子行业 <select id="topic-group"><option value="all">全部子行业</option></select></label>
+      <label>搜索 <input id="topic-search" placeholder="名称或股票代码" type="search"></label>
+      <label>排序
+        <select id="topic-sort">
+          <option value="name">行业 / 名称</option>
+          <option value="yield">2025已实施股息率</option>
+          <option value="cagr">完整十年分红CAGR</option>
+          <option value="cuts">已观测减息次数</option>
+          <option value="drawdown">历史最大回撤</option>
+        </select>
+      </label>
+    </section>
+    <p class="topic-note">2025财年股息率 = 该财年已实施税前每股分红 / 最新A股收盘价；未实施的派息不计入，历史年份缺失不填0。除息日与报告期可能不同，送转股涉及的跨期分红增长需调整后才可计算。所有数据标记来源和日期。</p>
+    <section class="workspace topic-workspace">
+      <nav id="topic-nav" class="asset-nav" aria-label="行业公司列表"></nav>
+      <article id="topic-detail" class="detail" aria-live="polite"></article>
+    </section>
+    <section id="topic-compare" class="topic-compare" aria-label="跨公司对比"></section>
+    <footer>股息不保证续派；股价与现金流分别分析。<a href="https://github.com/BestNathan/nasset/issues/1">专题方法与验收</a></footer>
+  </main>
+  <script src="./topics.js"></script>
+</body>
+</html>

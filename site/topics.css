@@ -1,0 +1,47 @@
+.topic-back{display:inline-block;margin-top:18px;color:var(--accent);text-decoration:none;font-size:13px}
+.topic-toolbar{display:flex;flex-wrap:wrap;align-items:end;gap:12px;margin:18px 0 14px}
+.topic-toolbar label{display:flex;flex-direction:column;gap:6px;color:var(--soft);font-size:12px;min-width:140px}
+.topic-toolbar input,.topic-toolbar select{border:1px solid var(--line);border-radius:10px;padding:10px;color:#f4f4f5;background:var(--panel-2);max-width:250px}
+.topic-filters{display:flex;align-items:center;flex-wrap:wrap;gap:7px;margin-right:auto}
+.topic-filter{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:9px 12px;color:var(--muted);cursor:pointer;font:inherit;font-size:12px}
+.topic-filter.active{border-color:var(--accent);color:var(--accent)}
+.topic-note,.topic-muted{color:var(--muted);font-size:12px;line-height:1.7}
+.topic-note{margin-top:15px}
+.topic-workspace{grid-template-columns:295px minmax(0,1fr);gap:22px;margin-top:20px}
+.topic-nav-row{display:flex;align-items:center;gap:4px}
+.topic-nav-row>.asset-btn{flex:1;min-width:0}
+.topic-item{display:flex;gap:6px;justify-content:space-between;align-items:center;width:100%}
+.topic-item small{display:block;color:var(--soft);font-size:10px;margin-top:5px}
+.topic-item em{font-style:normal;color:var(--accent);font-size:12px;white-space:nowrap}
+.topic-compare-check{padding:10px 6px;cursor:pointer}
+.topic-compare-check input{accent-color:var(--accent);cursor:pointer}
+.topic-label{color:var(--accent);font-size:11px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
+.topic-metrics{grid-template-columns:repeat(4,minmax(0,1fr))}
+.topic-metrics .metric{min-width:0}
+.topic-metrics .num{font-size:20px}
+.metric small{display:block;font-size:10px;color:var(--soft);margin-top:8px;line-height:1.5}
+.topic-section{margin-top:30px;border-top:1px solid var(--line);padding-top:12px}
+.topic-section h3{font-size:17px;margin:9px 0 17px}
+.topic-bar-list{display:grid;gap:9px}
+.topic-bar-row{display:grid;grid-template-columns:42px minmax(0,1fr) 96px;align-items:center;gap:11px;font-size:12px}
+.topic-bar-row>span{color:var(--soft)}
+.topic-bar-row strong{font:600 12px ui-monospace,monospace;text-align:right;font-variant-numeric:tabular-nums}
+.topic-bar-track{height:12px;border-radius:5px;background:#27272a;overflow:hidden}
+.topic-bar-fill{height:100%;border-radius:5px;background:var(--accent);min-width:0}
+.topic-year-tags{font-size:11px;color:var(--soft);margin:10px 0}
+.topic-table-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:14px}
+.topic-table{border-collapse:collapse;width:100%;min-width:480px;font-size:12px}
+.topic-table th,.topic-table td{padding:12px;border-bottom:1px solid var(--line);text-align:left}
+.topic-table th{color:var(--soft);font-size:11px}
+.topic-table td{font-variant-numeric:tabular-nums}
+.topic-table th small{display:block;font-weight:400;margin-top:4px}
+.topic-table tbody tr:last-child td{border:0}
+.topic-finance{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.topic-finance .value{font-size:17px;overflow-wrap:anywhere}
+.topic-compare{margin-top:50px;border-top:1px solid var(--line);padding-top:22px}
+.topic-compare h2{font-size:26px}.topic-compare h2 small{font-size:12px;color:var(--soft)}
+.topic-compare-hint,.topic-empty{padding:28px;color:var(--muted);font-size:13px;background:var(--panel);border-radius:12px}
+.topic-error{color:var(--bad);font-size:12px;overflow-wrap:anywhere}
+@media(max-width:1100px){.topic-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.topic-finance{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:900px){.topic-workspace{display:block}.topic-workspace .asset-nav{position:relative;top:auto;display:flex;flex-direction:column;max-height:300px;overflow-y:auto;overflow-x:hidden;margin-bottom:20px}.topic-note{margin-bottom:16px}.topic-toolbar label{flex:1}}
+@media(max-width:620px){.topic-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.topic-bar-row{grid-template-columns:38px minmax(0,1fr) 83px;gap:7px}.topic-bar-row strong{font-size:10px}.topic-toolbar{gap:9px}.topic-toolbar input,.topic-toolbar select{max-width:none;width:100%}.topic-filters{width:100%}.topic-metrics .num{font-size:17px}}
