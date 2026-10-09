@@ -98,7 +98,7 @@ def normalize_events(raw_rows):
         if not report_date or not ex_date or per_ten is None or per_ten < 0:
             continue  # proposed distributions are NOT realized cash
         fy = int(report_date[:4])
-        if fy < START_YEAR or fy > END_YEAR:
+        if fy < START_YEAR - 1 or fy > date.today().year:
             continue
         key = (fy, ex_date, round(per_ten, 8))
         if key in seen:
@@ -108,6 +108,7 @@ def normalize_events(raw_rows):
         transfer = number(row.get("IT_RATIO")) or 0
         if bonus < 0 or transfer < 0 or bonus + transfer > 100:
             raise ValueError("invalid share bonus/transfer ratio")
+        plan = str(row.get("IMPL_PLAN_PROFILE") or "")
         result.append({
             "fiscal_year": fy,
             "ex_date": ex_date,
@@ -115,6 +116,8 @@ def normalize_events(raw_rows):
             "cash_per_share_cny": round(per_ten / 10, 9),
             "bonus_per_ten": bonus,
             "transfer_per_ten": transfer,
+            "plan": plan[:180],
+            "possible_special_dividend": "特别" in plan or "特殊" in plan,
             "source": "Eastmoney/RPT_SHAREBONUS_DET",
         })
     return sorted(result, key=lambda row: (row["ex_date"], row["fiscal_year"]))
@@ -123,6 +126,8 @@ def normalize_events(raw_rows):
 def fiscal_history(events):
     years = {}
     for e in events:
+        if not START_YEAR <= e["fiscal_year"] <= END_YEAR:
+            continue
         key = str(e["fiscal_year"])
         years[key] = years.get(key, 0) + e["cash_per_share_cny"]
     return {k: round(v, 8) for k, v in sorted(years.items())}
@@ -135,7 +140,8 @@ def dividend_statistics(years, events):
     cuts = [100 * (b[1] / a[1] - 1) for a, b in pairs if b[1] < a[1]]
     all_years = [str(y) for y in range(START_YEAR, END_YEAR + 1)]
     missing = [y for y in all_years if y not in years]
-    corporate_action = any(e["bonus_per_ten"] or e["transfer_per_ten"] for e in events)
+    corporate_action = any((e["bonus_per_ten"] or e["transfer_per_ten"]) and
+                           START_YEAR <= e["fiscal_year"] <= END_YEAR for e in events)
     # Raw per-share growth is not comparable across bonus / transfer share changes.
     cagr = None
     if not missing and not corporate_action and all(years[y] > 0 for y in all_years):
