@@ -100,3 +100,21 @@ def test_market_universe_has_all_banks_and_no_duplicates():
     assert {"兰州银行","苏农银行","无锡银行"} <= {
         x["name"] for x in universe
     }
+
+
+def test_previous_fiscal_year_payment_preserved_for_cashflow_only():
+    events = module.normalize_events([
+        record(2014, "2015-07-01", 2.0),
+        record(2015, "2016-07-01", 2.5),
+    ])
+    assert len(events) == 2
+    assert module.fiscal_history(events) == {"2015": 0.25}
+
+
+def test_future_ex_date_is_not_counted_as_implemented_cash():
+    events = module.normalize_events([
+        record(2025, "2099-12-01", 5.0),
+        record(2025, "2026-07-01", 3.0),
+    ])
+    assert len(events) == 1
+    assert module.fiscal_history(events) == {"2025": 0.3}
