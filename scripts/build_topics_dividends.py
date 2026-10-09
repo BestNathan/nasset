@@ -116,6 +116,8 @@ def normalize_events(raw_rows):
         plan = str(row.get("IMPL_PLAN_PROFILE") or "")
         result.append({
             "fiscal_year": fy,
+            "report_date": report_date,
+            "period": "interim" if report_date[5:10] == "06-30" else ("annual" if report_date[5:10] == "12-31" else "other"),
             "ex_date": ex_date,
             "per_ten_cny": round(per_ten, 8),
             "cash_per_share_cny": round(per_ten / 10, 9),
