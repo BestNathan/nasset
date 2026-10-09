@@ -55,6 +55,22 @@ This is not a universal probability-of-loss rating. Long-duration sovereign bond
 
 The asset registry is in `src/nasset/engine.py`.
 
+## A-share dividend research topics
+
+The Pages site now has a separate [A-share high-dividend topics](site/topics.html) view; it does **not** replace the original four-layer cashflow ladder.
+
+- **Banks**: 42 A-share banks, grouped into state-owned, joint-stock, city and rural commercial banks.
+- **Telecom**: China Mobile, China Telecom and China Unicom (A shares).
+- **Infrastructure operators**: 33 hydropower, nuclear, toll-road, railway, port, airport, gas and water names. Construction contractors are intentionally excluded.
+- Filter by sector/subsector, search by stock or code, and compare up to five companies.
+- Show implemented **2015–2025 fiscal-year** dividend cash amounts, complete-series 10-year dividend CAGR, observed dividend cuts, and first-investment RMB 1 million cashflow.
+- For prices and risk, show the latest unadjusted A-share close, rolling 1/3/5/10-year approximate total returns (Yahoo adjusted close), realized volatility, Sortino, drawdown and daily 95% CVaR.
+
+The source-of-truth security registry is `data/topics-universe.json`.
+`scripts/build_topics_dividends.py` generates `site/data/topics-universe.json` and
+`site/data/topics-dividends.json`; the existing daily GitHub Actions job executes it before Pages deployment.
+See [topic data methodology](docs/topics.md) for missing-data and quality rules.
+
 ## Measurement model
 
 For each underlying, start with notional **100** at the beginning of its window:
