@@ -141,7 +141,7 @@ def dividend_statistics(years, events):
     all_years = [str(y) for y in range(START_YEAR, END_YEAR + 1)]
     missing = [y for y in all_years if y not in years]
     corporate_action = any((e["bonus_per_ten"] or e["transfer_per_ten"]) and
-                           START_YEAR <= e["fiscal_year"] <= END_YEAR for e in events)
+                           e["ex_date"] >= f"{START_YEAR}-01-01" for e in events)
     # Raw per-share growth is not comparable across bonus / transfer share changes.
     cagr = None
     if not missing and not corporate_action and all(years[y] > 0 for y in all_years):
@@ -235,6 +235,12 @@ def simulate_cashflow(frame, events, notional=NOTIONAL):
         "cashflow_by_payment_year_cny": {y: round(value, 2) for y, value in yearly_cash.items()},
         "cumulative_cash_cny": round(sum(yearly_cash.values()), 2),
         "latest_position_value_cny": round(shares * float(close.iloc[-1]), 2),
+        "total_value_cny": round(shares * float(close.iloc[-1]) + sum(yearly_cash.values()), 2),
+        "total_return_pct_no_reinvest": round(
+            (shares * float(close.iloc[-1]) + sum(yearly_cash.values()))
+            / (initial_shares * start_price) * 100 - 100, 3),
+        "calendar_2025_yield_on_cost_pct": round(
+            yearly_cash.get("2025", 0) / (initial_shares * start_price) * 100, 3),
         "assumptions": "2015 or first listed date, 100-share lots, no reinvestment, before tax/fees; share bonuses inferred only from disclosed events.",
     }
 
