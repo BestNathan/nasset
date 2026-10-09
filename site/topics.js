@@ -2,7 +2,7 @@
 
 const state = {
   universe: [], stocks: {}, payload: null, sector: "all", group: "all", sort: "name",
-  search: "", selected: null, compare: new Set(), reinvest: false, error: null
+  search: "", selected: null, compare: new Set(), reinvest: false, comparable: true, error: null
 };
 const sectors = { banking: "银行", telecom: "电信运营商", infrastructure: "基础设施" };
 const $ = id => document.getElementById(id);
@@ -131,7 +131,7 @@ function renderMetrics(row, entry) {
     metric("2025已实施股息率",percent(entry?.implemented_fy_yield_pct),
       "税前 · 仅已实施 · 收盘价"+(price.as_of||"未知")) +
     metric("分红CAGR (2015—25)",percent(summary.cagr_pct),
-      "仅11年完整且无未经调整送转股") +
+      "仅11年完整的可比份额分红") +
     metric("已观测减息",valid(summary.observed_cuts)&&summary.observed_adjacent_pairs?
       summary.observed_cuts + " 次 / " + summary.observed_adjacent_pairs + " 对":"—",
       "相邻财年样本；不等于未来减息概率") +
@@ -192,11 +192,16 @@ function renderDetail() {
       '<span class="badge">'+status+'</span></div>'+
     renderMetrics(row,entry)+
     '<section class="topic-section"><h3>逐财年现金分红 / 每股税前</h3>'+
-    bars(entry?.years)+
+    '<div class="topic-toggle" role="group" aria-label="每股分红口径"><button data-comparable="yes" class="topic-filter'+(state.comparable?' active':'')+'">当前份额可比</button><button data-comparable="no" class="topic-filter'+(!state.comparable?' active':'')+'">当年原始每股</button></div>'+
+    bars(state.comparable?entry?.years:entry?.raw_years)+
     '<p class="topic-muted">按照 REPORT_DATE 财年合计已实施的中期和末期派息。缺失年表示尚未取得可核实记录，不等于零分红。'+
     (stat.share_adjustment_applied?'历史分红已按送股/转增折算为可比份额单位；原始每股金额保留于事件数据。':(stat.share_adjustment_required?'存在未调整股本变动，CAGR不可比。':''))+'</p>'+
     (entry?.events||[]).filter(e=>e.verified_exception).map(e=>'<p class="topic-muted">已按普通A股持有者口径核验调整 FY'+e.fiscal_year+'：'+escapeHtml(e.verified_exception.reason)+' <a target="_blank" rel="noopener" href="'+escapeHtml(e.verified_exception.source_url)+'">实施公告 ↗</a></p>').join("")+
-    '<div class="topic-year-tags">缺失财年：'+(stat.missing_fiscal_years?.join("、")||"—")+'</div></section>'+
+    '<div class="topic-year-tags">缺失财年：'+(stat.missing_fiscal_years?.join("、")||"—")+'</div>'+
+    '<details class="topic-events"><summary>查看中期 / 年度 / 特别分红实施记录（'+(entry?.events?.length||0)+'条）</summary><div class="topic-table-scroll"><table class="topic-table"><thead><tr><th>报告财年</th><th>类型</th><th>除息日</th><th>原始派息 / 每10股</th><th>送/转股</th></tr></thead><tbody>'+
+      (entry?.events||[]).filter(e=>e.fiscal_year>=2015&&e.fiscal_year<=2025).map(e=>
+        '<tr><td>'+e.fiscal_year+'</td><td>'+escapeHtml(e.possible_special_dividend?'特别派息':(e.period==='interim'?'中期':e.period==='annual'?'年度':'其他'))+'</td><td>'+escapeHtml(e.ex_date)+'</td><td>'+decimal(e.per_ten_cny,4)+' 元</td><td>'+decimal(e.bonus_per_ten,2)+' / '+decimal(e.transfer_per_ten,2)+'</td></tr>'
+      ).join("")+'</tbody></table></div></details></section>'+
     '<section class="topic-section"><h3>100万元买入持有 · 现金流与复购</h3>'+
     '<div class="topic-toggle" role="group" aria-label="股息再投资"><button data-reinvest="no" class="topic-filter'+(!state.reinvest?' active':'')+'">分红取现</button><button data-reinvest="yes" class="topic-filter'+(state.reinvest?' active':'')+'">股息再投资</button></div>'+
     bars(state.reinvest?sim.reinvested?.cashflow_by_payment_year_cny:sim.cashflow_by_payment_year_cny,"cash")+
@@ -219,6 +224,9 @@ function renderDetail() {
       ' 数据只涵盖A股；特别分红需结合公告单独核实，静态股息率不等于可预测回报。</p>'+
       (entry?.errors?.length?'<p class="topic-error">'+entry.errors.map(escapeHtml).join("；")+'</p>':'')+
       '</section>';
+  document.querySelectorAll("[data-comparable]").forEach(button=>{
+    button.onclick=()=>{state.comparable=button.dataset.comparable==="yes";renderDetail();};
+  });
   document.querySelectorAll("[data-reinvest]").forEach(button=>{
     button.onclick=()=>{state.reinvest=button.dataset.reinvest==="yes";renderDetail();};
   });
