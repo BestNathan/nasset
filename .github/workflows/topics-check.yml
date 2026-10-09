@@ -36,36 +36,9 @@ jobs:
       - name: Python compile
         run: python -m py_compile scripts/build_topics_dividends.py
 
-  live-source-probe:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-      - name: Dependencies
-        run: pip install -e ".[dev]"
-      - name: Verify one real dividend and price feed
-        run: |
-          python - <<'PY'
-          import importlib.util
-          from pathlib import Path
-          spec = importlib.util.spec_from_file_location("topics", Path("scripts/build_topics_dividends.py"))
-          m = importlib.util.module_from_spec(spec)
-          spec.loader.exec_module(m)
-          events = m.normalize_events(m.eastmoney_history("601398.SS"))
-          print("ICBC dividend event rows:", len(events))
-          assert events, "Eastmoney did not return implemented cash dividends"
-          frame, price = m.fetch_prices("601398.SS")
-          print("ICBC latest A-share price:", price)
-          assert price["close_cny"] > 0
-          PY
-
   full-data-integration:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -95,6 +68,22 @@ jobs:
               for yr,amount in stock.get("years", {}).items():
                   assert 2015 <= int(yr) <= 2025 and amount >= 0, code
           PY
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install browser test dependencies
+        run: |
+          npm install --no-save playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Browser UI verification and screenshots
+        run: |
+          python -m http.server 8765 --directory site >/tmp/nasset-topics-http.log 2>&1 &
+          node tests/topics_browser.cjs
+      - name: Upload Pages screenshot evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: topic-browser-acceptance
+          path: artifacts/topics-*.png
       - name: Upload integration snapshot for auditing
         uses: actions/upload-artifact@v4
         with:
