@@ -37,7 +37,7 @@ function filtered() {
       const av=field(a), bv=field(b);
       if (!valid(av)) return valid(bv) ? 1 : a.name.localeCompare(b.name,"zh");
       if (!valid(bv)) return -1;
-      const direction = key === "cuts" ? 1 : -1;
+      const direction = key === "cuts" ? -1 : 1;
       return (Number(bv) - Number(av))*direction || a.name.localeCompare(b.name,"zh");
     });
   }
@@ -112,7 +112,7 @@ function renderNav(rows) {
 
 function bars(years, kind="dividend") {
   const entries = Object.entries(years || {}).filter(([year,value])=>
-    Number(year)>=2015 && Number(year)<=2025 && valid(value)
+    Number(year)>=2015 && Number(year)<=(kind==="cash"?new Date().getFullYear():2025) && valid(value)
   ).sort(([a],[b])=>Number(a)-Number(b));
   if (!entries.length) return '<p class="topic-empty">该时间区间尚无可核验记录</p>';
   const max = Math.max(...entries.map(([,v]) => Number(v)), 0.00001);
