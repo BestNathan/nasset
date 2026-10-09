@@ -189,3 +189,14 @@ def test_universe_rejects_non_a_share_symbols():
     mutated[0]["symbol"]="1398.HK"
     with pytest.raises(ValueError,match="not an A-share"):
         module.validate_universe(mutated)
+
+
+def test_eastmoney_total_bonus_does_not_double_count_transfers():
+    source = record(2023, "2024-05-29", 2.5, bonus=1, transfer=1)
+    events = module.normalize_events([source])
+    assert events[0]["bonus_per_ten"] == 0
+    assert events[0]["transfer_per_ten"] == 1
+    assert module.split_adjusted_events(events)[0]["current_share_equivalence_factor"] == 1.1
+    source = record(2023, "2024-05-29", 2.5, bonus=3, transfer=1)
+    e = module.normalize_events([source])[0]
+    assert e["bonus_per_ten"] == 2 and e["transfer_per_ten"] == 1
