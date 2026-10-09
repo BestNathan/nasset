@@ -190,6 +190,7 @@ function renderDetail() {
     bars(entry?.years)+
     '<p class="topic-muted">按照 REPORT_DATE 财年合计已实施的中期和末期派息。缺失年表示尚未取得可核实记录，不等于零分红。'+
     (stat.share_adjustment_required?'检测到送股/转增；本页不计算未经可比调整的十年CAGR。':'')+'</p>'+
+    (entry?.events||[]).filter(e=>e.verified_exception).map(e=>'<p class="topic-muted">已按普通A股持有者口径核验调整 FY'+e.fiscal_year+'：'+escapeHtml(e.verified_exception.reason)+' <a target="_blank" rel="noopener" href="'+escapeHtml(e.verified_exception.source_url)+'">实施公告 ↗</a></p>').join("")+
     '<div class="topic-year-tags">缺失财年：'+(stat.missing_fiscal_years?.join("、")||"—")+'</div></section>'+
     '<section class="topic-section"><h3>100万元买入持有 · 实际现金流模拟</h3>'+
     bars(sim.cashflow_by_payment_year_cny,"cash")+
