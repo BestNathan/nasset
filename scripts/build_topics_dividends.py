@@ -291,6 +291,7 @@ def simulate_cashflow(frame, events, notional=NOTIONAL):
     reinvested_shares = float(initial_shares)
     unspent_dividend_cash = 0.0
     payment_cash = {str(year): 0.0 for year in range(start_date.year, end_date.year + 1)}
+    reinvest_payment_cash = {year: 0.0 for year in payment_cash}
     gross_reinvest_distributions = 0.0
     grouped_dates = sorted({e["ex_date"] for e in eligible})
     for day in grouped_dates:
@@ -299,6 +300,7 @@ def simulate_cashflow(frame, events, notional=NOTIONAL):
         dividend = shares * cash_per_pre_split_share
         reinvest_dividend = reinvested_shares * cash_per_pre_split_share
         payment_cash[day[:4]] += dividend
+        reinvest_payment_cash[day[:4]] += reinvest_dividend
         gross_reinvest_distributions += reinvest_dividend
         unspent_dividend_cash += reinvest_dividend
         ratio = ratios_by_date.get(day, 1.0)
@@ -338,6 +340,7 @@ def simulate_cashflow(frame, events, notional=NOTIONAL):
             "position_value_cny": round(reinvest_value, 2),
             "total_return_pct": round(reinvest_value / contributed * 100 - 100, 3),
             "dividends_reinvested_gross_cny": round(gross_reinvest_distributions, 2),
+            "cashflow_by_payment_year_cny": {y: round(v, 2) for y, v in reinvest_payment_cash.items()},
         },
         "stock_action_factor": round(total_split_factor, 8),
         "assumptions": "2015 or first listed date, board lots of 100; Yahoo historical split-adjusted Close is reversed using declared bonus/transfer factors; no tax, fees, slippage or rights subscription.",
