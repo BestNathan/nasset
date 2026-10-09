@@ -21,6 +21,7 @@ import yfinance as yf
 
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = ROOT / "data" / "topics-universe.json"
+CORRECTIONS = ROOT / "data" / "topics-dividend-corrections.json"
 OUTPUT = ROOT / "site" / "data" / "topics-dividends.json"
 START_YEAR, END_YEAR = 2015, 2025
 NOTIONAL = 1_000_000
@@ -121,6 +122,36 @@ def normalize_events(raw_rows):
             "source": "Eastmoney/RPT_SHAREBONUS_DET",
         })
     return sorted(result, key=lambda row: (row["ex_date"], row["fiscal_year"]))
+
+
+
+def apply_verified_corrections(events, symbol, corrections=None):
+    """Correct documented holder-class dividends for representative retail A shares.
+
+    Each correction asserts the upstream number and ex date; vendor drift must
+    trigger an exception, not silently corrupt a long-term CAGR.
+    """
+    if corrections is None:
+        corrections = json.loads(CORRECTIONS.read_text(encoding="utf-8"))
+    revised = [dict(event) for event in events]
+    for rule in corrections.get(symbol, []):
+        matches = [e for e in revised if e["fiscal_year"] == rule["fiscal_year"]
+                   and e["ex_date"] == rule["ex_date"]]
+        if len(matches) != 1:
+            raise ValueError(f"Expected exactly one source event for correction: {symbol} {rule['ex_date']}")
+        event = matches[0]
+        before = event["per_ten_cny"]
+        if abs(before - rule["upstream_per_ten_cny"]) > 0.00001:
+            raise ValueError(f"Dividend source has changed; reverify {symbol} {rule['ex_date']}")
+        event["vendor_per_ten_cny"] = before
+        event["per_ten_cny"] = float(rule["retail_a_share_per_ten_cny"])
+        event["cash_per_share_cny"] = round(event["per_ten_cny"] / 10, 9)
+        event["verified_exception"] = {
+            "source_url": rule["source_url"],
+            "reason": rule["reason"],
+            "basis": "public/retail A-share holder; not universal for all shareholder classes",
+        }
+    return revised
 
 
 def fiscal_history(events):
@@ -302,7 +333,7 @@ def build_one(item, previous=None):
     errors = []
     events = []
     try:
-        events = normalize_events(eastmoney_history(symbol))
+        events = apply_verified_corrections(normalize_events(eastmoney_history(symbol)), symbol)
         if not events:
             raise ValueError("no implemented fiscal-year dividend events")
         years = fiscal_history(events)

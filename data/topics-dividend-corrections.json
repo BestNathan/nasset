@@ -1,0 +1,12 @@
+{
+  "600900.SS": [
+    {
+      "fiscal_year": 2015,
+      "ex_date": "2016-07-19",
+      "upstream_per_ten_cny": 1.2946,
+      "retail_a_share_per_ten_cny": 4.0,
+      "source_url": "https://static.cninfo.com.cn/finalpage/2016-07-13/1202468389.PDF",
+      "reason": "2015 restructuring paid RMB 4.00 per 10 shares to pre-restructuring/public A-share holders, but RMB 1.2946 per 10 shares to designated asset-subscription shareholders; Eastmoney selected the latter."
+    }
+  ]
+}

@@ -118,3 +118,18 @@ def test_future_ex_date_is_not_counted_as_implemented_cash():
     ])
     assert len(events) == 1
     assert module.fiscal_history(events) == {"2025": 0.3}
+
+
+def test_verified_holder_class_correction_for_changjiang():
+    vendor = module.normalize_events([record(2015, "2016-07-19", 1.2946)])
+    corrected = module.apply_verified_corrections(vendor, "600900.SS")
+    assert vendor[0]["cash_per_share_cny"] == .12946
+    assert corrected[0]["cash_per_share_cny"] == .4
+    assert corrected[0]["vendor_per_ten_cny"] == 1.2946
+    assert corrected[0]["verified_exception"]["source_url"].startswith("https://")
+
+
+def test_holder_class_correction_rejects_vendor_drift():
+    altered = module.normalize_events([record(2015, "2016-07-19", 1.40)])
+    with pytest.raises(ValueError, match="source has changed"):
+        module.apply_verified_corrections(altered, "600900.SS")

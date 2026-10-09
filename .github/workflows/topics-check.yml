@@ -5,6 +5,7 @@ on:
       - "scripts/build_topics_dividends.py"
       - "tests/test_topics.py"
       - "data/topics-universe.json"
+      - "data/topics-dividend-corrections.json"
       - "site/topics.*"
       - ".github/workflows/topics-check.yml"
       - ".github/workflows/daily.yml"
@@ -88,6 +89,8 @@ jobs:
           assert coverage["fresh_dividends"] >= 65, "insufficient successful dividend coverage"
           assert coverage["priced"] >= 65, "insufficient successful price coverage"
           assert len(d["stocks"]) == 78
+          assert d["stocks"]["600900.SS"]["years"]["2015"] == 0.4
+          assert 9.5 < d["stocks"]["600900.SS"]["statistics"]["cagr_pct"] < 9.7
           for code,stock in d["stocks"].items():
               for yr,amount in stock.get("years", {}).items():
                   assert 2015 <= int(yr) <= 2025 and amount >= 0, code
