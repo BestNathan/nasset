@@ -14,6 +14,19 @@ Historical cash dividends come from Eastmoney `RPT_SHAREBONUS_DET`. The source f
 
 Cash dividends from multiple events belonging to a fiscal year are summed, while exact duplicate event records are rejected. Missing records are **null**, not presumed zero. The reported 10-year CAGR requires all 11 positive fiscal-year observations and no unadjusted share bonus/transfer; otherwise the CAGR is unavailable. Observed cut counts only use actually observed adjacent fiscal years, so missing years do not create fictitious non-cuts. These are historical frequencies, **not a calibrated probability of future dividends**.
 
+
+### Holder-class dividend exception (FY2015 Yangtze Power)
+
+`600900.SS` FY2015 distributions were not uniform across all holders. The company's
+official **2016-07-13 implementation announcement** specifies RMB **4.00 per
+10 shares** for ordinary pre-restructuring/public holders versus RMB **1.2946
+per 10 shares** for designated asset-subscription shareholders. The upstream
+event dataset only surfaced 1.2946, which inflated the naive 2015–2025 CAGR.
+`data/topics-dividend-corrections.json` records the exceptional value, source
+and exact upstream assertion. The research topic selects the public A-share
+holder basis; the correction is not a generic override across shareholder classes.
+Source: https://static.cninfo.com.cn/finalpage/2016-07-13/1202468389.PDF
+
 ## Valuation and return
 
 - Current A-share close, CNY, Yahoo Finance; show quote timestamp.
