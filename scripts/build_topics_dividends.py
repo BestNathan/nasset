@@ -95,7 +95,7 @@ def normalize_events(raw_rows):
         report_date = date_part(row.get("REPORT_DATE"))
         ex_date = date_part(row.get("EX_DIVIDEND_DATE"))
         per_ten = number(row.get("PRETAX_BONUS_RMB"))
-        if not report_date or not ex_date or per_ten is None or per_ten < 0:
+        if not report_date or not ex_date or ex_date > date.today().isoformat() or per_ten is None or per_ten < 0:
             continue  # proposed distributions are NOT realized cash
         fy = int(report_date[:4])
         if fy < START_YEAR - 1 or fy > date.today().year:
