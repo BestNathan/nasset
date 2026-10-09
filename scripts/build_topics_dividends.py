@@ -138,7 +138,7 @@ def dividend_statistics(years, events):
     corporate_action = any(e["bonus_per_ten"] or e["transfer_per_ten"] for e in events)
     # Raw per-share growth is not comparable across bonus / transfer share changes.
     cagr = None
-    if not missing and not corporate_action and points[0][1] > 0 and points[-1][1] > 0:
+    if not missing and not corporate_action and all(years[y] > 0 for y in all_years):
         cagr = ((points[-1][1] / points[0][1]) ** (1 / (END_YEAR - START_YEAR)) - 1) * 100
     streak = 0
     for year in range(END_YEAR, START_YEAR - 1, -1):
@@ -208,7 +208,7 @@ def simulate_cashflow(frame, events, notional=NOTIONAL):
         return None
     initial_shares = shares
     start_date = close.index[0].date()
-    yearly_cash = {str(year): 0.0 for year in range(start_date.year, END_YEAR + 1)}
+    yearly_cash = {str(year): 0.0 for year in range(start_date.year, max(END_YEAR, date.today().year) + 1)}
     for event in sorted(events, key=lambda item: item["ex_date"]):
         ex_date = date.fromisoformat(event["ex_date"])
         if ex_date < start_date or ex_date > date.today():
@@ -226,8 +226,8 @@ def simulate_cashflow(frame, events, notional=NOTIONAL):
         "initial_price_cny": round(start_price, 4),
         "initial_shares": initial_shares,
         "current_shares_estimated": round(shares, 4),
-        "cashflow_by_payment_year_cny": {y: round(value, 2) for y, value in yearly_cash.items() if int(y) <= END_YEAR},
-        "cumulative_cash_cny": round(sum(value for y, value in yearly_cash.items() if int(y) <= END_YEAR), 2),
+        "cashflow_by_payment_year_cny": {y: round(value, 2) for y, value in yearly_cash.items()},
+        "cumulative_cash_cny": round(sum(yearly_cash.values()), 2),
         "latest_position_value_cny": round(shares * float(close.iloc[-1]), 2),
         "assumptions": "2015 or first listed date, 100-share lots, no reinvestment, before tax/fees; share bonuses inferred only from disclosed events.",
     }
