@@ -139,7 +139,7 @@ function renderMetrics(row, entry) {
     metric("当前股价",cny(price.close_cny),"A股 · CNY · "+(price.as_of||"无日期")) +
     metric("近12个月现金股息率",percent(entry?.ttm_cash_yield_pct),"除息日最近365天 / 当前股价") +
     metric("初始100万元累计现金",cny(cash.cumulative_cash_cny),"非再投资，税费未扣") +
-    metric("日收益CVaR 95%",percent(risk.daily_cvar_95_pct),"最差5%交易日的平均收益") +
+    metric("总回报（未再投）",percent(cash.total_return_pct_no_reinvest),"当前市值+累计分红，税前") +
     '</div>';
 }
 
@@ -199,7 +199,7 @@ function renderDetail() {
     '；当前持股估值 '+cny(sim.latest_position_value_cny)+
     '。按除息支付年份统计，100股整手买入，税前、无再投资，送转按公开事件调整股数。</p></section>'+
     '<section class="topic-section"><h3>风险与滚动总收益分布</h3>'+
-    '<div class="metrics">'+metric("年化波动率",percent(risk.annual_volatility_pct))+
+    '<div class="metrics">'+metric("年化波动率",percent(risk.annual_volatility_pct))+metric("日收益CVaR 95%",percent(risk.daily_cvar_95_pct))+
        metric("Sortino (Rf=0)",valid(risk.sortino_zero_rf)?decimal(risk.sortino_zero_rf,2):"—")+
        metric("日收益观测数",risk.observations??"—")+'</div>'+
     rollingTable(risk)+'<p class="topic-muted">Yahoo复权收盘价近似现金股息再投资总回报。滚动窗口按252交易日/年，重叠窗口的样本并非独立观测；数据不足返回“—”。</p></section>'+
@@ -224,7 +224,8 @@ function renderCompare(){
     ["已覆盖财年",r=>String(stats(r).years_with_cash??"—")],
     ["最大回撤",r=>percent(data(r)?.risk?.max_drawdown_pct)],
     ["年化波动率",r=>percent(data(r)?.risk?.annual_volatility_pct)],
-    ["100万元累计现金",r=>cny(data(r)?.simulation?.cumulative_cash_cny)]
+    ["100万元累计现金",r=>cny(data(r)?.simulation?.cumulative_cash_cny)],
+    ["未再投总回报",r=>percent(data(r)?.simulation?.total_return_pct_no_reinvest)]
   ];
   section.innerHTML='<h2>跨公司比较 <small>'+rows.length+'/5</small></h2><div class="topic-table-scroll"><table class="topic-table"><thead><tr><th>指标</th>'+
   rows.map(r=>'<th>'+escapeHtml(r.name)+'<small>'+r.symbol+'</small></th>').join("")+
