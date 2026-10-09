@@ -154,29 +154,54 @@ def apply_verified_corrections(events, symbol, corrections=None):
     return revised
 
 
-def fiscal_history(events):
+def split_adjusted_events(events):
+    """Normalize pre-split cash to the latest equivalent share count.
+
+    Bonus/transfer ratios are explicitly reported per 10 shares. For several
+    events on one ex-date, apply that date's share action once.
+    """
+    result = [dict(e) for e in events]
+    dates = sorted({e["ex_date"] for e in result}, reverse=True)
+    factor = 1.0
+    for ex_date in dates:
+        same_day = [e for e in result if e["ex_date"] == ex_date]
+        ratios = {(e["bonus_per_ten"], e["transfer_per_ten"]) for e in same_day
+                  if e["bonus_per_ten"] or e["transfer_per_ten"]}
+        if len(ratios) > 1:
+            raise ValueError(f"conflicting corporate actions for {ex_date}")
+        if ratios:
+            bonus, transfer = next(iter(ratios))
+            factor *= 1 + (bonus + transfer) / 10
+        for event in same_day:
+            event["comparable_cash_per_share_cny"] = round(
+                event["cash_per_share_cny"] / factor, 9)
+            event["current_share_equivalence_factor"] = round(factor, 8)
+    return result
+
+
+def fiscal_history(events, *, comparable=False):
     years = {}
+    field = "comparable_cash_per_share_cny" if comparable else "cash_per_share_cny"
     for e in events:
         if not START_YEAR <= e["fiscal_year"] <= END_YEAR:
             continue
         key = str(e["fiscal_year"])
-        years[key] = years.get(key, 0) + e["cash_per_share_cny"]
+        years[key] = years.get(key, 0) + e[field]
     return {k: round(v, 8) for k, v in sorted(years.items())}
 
 
-def dividend_statistics(years, events):
-    """Missing is NOT zero, and a gap does NOT become a successful dividend year."""
+def dividend_statistics(years, events, *, comparable=False):
+    """Compute complete-decade CAGR only from comparable annual share units."""
     points = [(int(k), float(v)) for k, v in sorted(years.items()) if v > 0]
     pairs = [(a, b) for a, b in zip(points, points[1:]) if b[0] == a[0] + 1]
     cuts = [100 * (b[1] / a[1] - 1) for a, b in pairs if b[1] < a[1]]
     all_years = [str(y) for y in range(START_YEAR, END_YEAR + 1)]
-    missing = [y for y in all_years if y not in years]
+    missing = [y for y in all_years if y not in years or years[y] <= 0]
     corporate_action = any((e["bonus_per_ten"] or e["transfer_per_ten"]) and
                            e["ex_date"] >= f"{START_YEAR}-01-01" for e in events)
-    # Raw per-share growth is not comparable across bonus / transfer share changes.
     cagr = None
-    if not missing and not corporate_action and all(years[y] > 0 for y in all_years):
-        cagr = ((points[-1][1] / points[0][1]) ** (1 / (END_YEAR - START_YEAR)) - 1) * 100
+    if not missing and (not corporate_action or comparable):
+        cagr = ((years[str(END_YEAR)] / years[str(START_YEAR)]) ** (1 / (END_YEAR - START_YEAR)) - 1) * 100
     streak = 0
     for year in range(END_YEAR, START_YEAR - 1, -1):
         if years.get(str(year), 0) <= 0:
@@ -191,7 +216,8 @@ def dividend_statistics(years, events):
         "consecutive_years_to_2025": streak,
         "cagr_pct": round(cagr, 3) if cagr is not None else None,
         "full_2015_2025_coverage": not missing,
-        "share_adjustment_required": corporate_action,
+        "share_adjustment_required": corporate_action and not comparable,
+        "share_adjustment_applied": corporate_action and comparable,
     }
 
 
@@ -333,17 +359,18 @@ def build_one(item, previous=None):
     errors = []
     events = []
     try:
-        events = apply_verified_corrections(normalize_events(eastmoney_history(symbol)), symbol)
+        events = split_adjusted_events(apply_verified_corrections(normalize_events(eastmoney_history(symbol)), symbol))
         if not events:
             raise ValueError("no implemented fiscal-year dividend events")
-        years = fiscal_history(events)
-        output.update({"events": events, "years": years,
-                       "statistics": dividend_statistics(years, events),
+        years = fiscal_history(events, comparable=True)
+        raw_years = fiscal_history(events)
+        output.update({"events": events, "years": years, "raw_years": raw_years,
+                       "statistics": dividend_statistics(years, events, comparable=True),
                        "status": "observed"})
     except Exception as exc:
         errors.append("dividend: " + str(exc)[:160])
         if previous and previous.get("events") and previous.get("years"):
-            for key in ("events", "years", "statistics"):
+            for key in ("events", "years", "raw_years", "statistics"):
                 output[key] = previous[key]
             output["status"] = "stale"
     try:
@@ -356,7 +383,7 @@ def build_one(item, previous=None):
             latest_year = output.get("years", {}).get(str(END_YEAR))
             output["implemented_fy_yield_pct"] = round(latest_year / current * 100, 3) if latest_year is not None else None
             cutoff = date.today() - timedelta(days=365)
-            ttm = sum(event["cash_per_share_cny"] for event in output["events"]
+            ttm = sum(event["comparable_cash_per_share_cny"] for event in output["events"]
                       if cutoff <= date.fromisoformat(event["ex_date"]) <= date.today())
             output["ttm_cash_yield_pct"] = round(ttm / current * 100, 3)
     except Exception as exc:
