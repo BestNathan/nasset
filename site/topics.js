@@ -2,7 +2,7 @@
 
 const state = {
   universe: [], stocks: {}, payload: null, sector: "all", group: "all", sort: "name",
-  search: "", selected: null, compare: new Set(), error: null
+  search: "", selected: null, compare: new Set(), reinvest: false, comparable: true, error: null
 };
 const sectors = { banking: "银行", telecom: "电信运营商", infrastructure: "基础设施" };
 const $ = id => document.getElementById(id);
@@ -131,7 +131,7 @@ function renderMetrics(row, entry) {
     metric("2025已实施股息率",percent(entry?.implemented_fy_yield_pct),
       "税前 · 仅已实施 · 收盘价"+(price.as_of||"未知")) +
     metric("分红CAGR (2015—25)",percent(summary.cagr_pct),
-      "仅11年完整且无未经调整送转股") +
+      "仅11年完整的可比份额分红") +
     metric("已观测减息",valid(summary.observed_cuts)&&summary.observed_adjacent_pairs?
       summary.observed_cuts + " 次 / " + summary.observed_adjacent_pairs + " 对":"—",
       "相邻财年样本；不等于未来减息概率") +
@@ -139,7 +139,12 @@ function renderMetrics(row, entry) {
     metric("当前股价",cny(price.close_cny),"A股 · CNY · "+(price.as_of||"无日期")) +
     metric("近12个月现金股息率",percent(entry?.ttm_cash_yield_pct),"除息日最近365天 / 当前股价") +
     metric("初始100万元累计现金",cny(cash.cumulative_cash_cny),"非再投资，税费未扣") +
-    metric("总回报（未再投）",percent(cash.total_return_pct_no_reinvest),"当前市值+累计分红，税前") +
+    metric(state.reinvest?"再投资总回报":"总回报（未再投）",
+      percent(state.reinvest?cash.reinvested?.total_return_pct:cash.total_return_pct_no_reinvest),
+      "当前市值"+(state.reinvest?"（股息复购）":"+累计分红")+"，税前") +
+    metric("2025投入成本股息率",percent(cash.calendar_2025_yield_on_cost_pct),"2025自然年现金分红 / 初始买入成本") +
+    metric("连续有现金股息",valid(summary.consecutive_years_to_2025)?
+      summary.consecutive_years_to_2025+" 年":"—","截至已实施 FY2025；不预测未来") +
     '</div>';
 }
 
@@ -187,18 +192,25 @@ function renderDetail() {
       '<span class="badge">'+status+'</span></div>'+
     renderMetrics(row,entry)+
     '<section class="topic-section"><h3>逐财年现金分红 / 每股税前</h3>'+
-    bars(entry?.years)+
+    '<div class="topic-toggle" role="group" aria-label="每股分红口径"><button data-comparable="yes" class="topic-filter'+(state.comparable?' active':'')+'">当前份额可比</button><button data-comparable="no" class="topic-filter'+(!state.comparable?' active':'')+'">当年原始每股</button></div>'+
+    bars(state.comparable?entry?.years:entry?.raw_years)+
     '<p class="topic-muted">按照 REPORT_DATE 财年合计已实施的中期和末期派息。缺失年表示尚未取得可核实记录，不等于零分红。'+
-    (stat.share_adjustment_required?'检测到送股/转增；本页不计算未经可比调整的十年CAGR。':'')+'</p>'+
+    (stat.share_adjustment_applied?'历史分红已按送股/转增折算为可比份额单位；原始每股金额保留于事件数据。':(stat.share_adjustment_required?'存在未调整股本变动，CAGR不可比。':''))+'</p>'+
     (entry?.events||[]).filter(e=>e.verified_exception).map(e=>'<p class="topic-muted">已按普通A股持有者口径核验调整 FY'+e.fiscal_year+'：'+escapeHtml(e.verified_exception.reason)+' <a target="_blank" rel="noopener" href="'+escapeHtml(e.verified_exception.source_url)+'">实施公告 ↗</a></p>').join("")+
-    '<div class="topic-year-tags">缺失财年：'+(stat.missing_fiscal_years?.join("、")||"—")+'</div></section>'+
-    '<section class="topic-section"><h3>100万元买入持有 · 实际现金流模拟</h3>'+
-    bars(sim.cashflow_by_payment_year_cny,"cash")+
+    '<div class="topic-year-tags">缺失财年：'+(stat.missing_fiscal_years?.join("、")||"—")+'</div>'+
+    '<details class="topic-events"><summary>查看中期 / 年度 / 特别分红实施记录（'+(entry?.events?.length||0)+'条）</summary><div class="topic-table-scroll"><table class="topic-table"><thead><tr><th>报告财年</th><th>类型</th><th>除息日</th><th>原始派息 / 每10股</th><th>送/转股</th></tr></thead><tbody>'+
+      (entry?.events||[]).filter(e=>e.fiscal_year>=2015&&e.fiscal_year<=2025).map(e=>
+        '<tr><td>'+e.fiscal_year+'</td><td>'+escapeHtml(e.possible_special_dividend?'特别派息':(e.period==='interim'?'中期':e.period==='annual'?'年度':'其他'))+'</td><td>'+escapeHtml(e.ex_date)+'</td><td>'+decimal(e.per_ten_cny,4)+' 元</td><td>'+decimal(e.bonus_per_ten,2)+' / '+decimal(e.transfer_per_ten,2)+'</td></tr>'
+      ).join("")+'</tbody></table></div></details></section>'+
+    '<section class="topic-section"><h3>100万元买入持有 · 现金流与复购</h3>'+
+    '<div class="topic-toggle" role="group" aria-label="股息再投资"><button data-reinvest="no" class="topic-filter'+(!state.reinvest?' active':'')+'">分红取现</button><button data-reinvest="yes" class="topic-filter'+(state.reinvest?' active':'')+'">股息再投资</button></div>'+
+    bars(state.reinvest?sim.reinvested?.cashflow_by_payment_year_cny:sim.cashflow_by_payment_year_cny,"cash")+
     '<p class="topic-muted">买入日 '+escapeHtml(sim.start_date||"未知")+
     '；初始股数 '+escapeHtml(sim.initial_shares??"—")+
     '；初始投入 '+cny(sim.invested_cny)+
     '；当前持股估值 '+cny(sim.latest_position_value_cny)+
-    '。按除息支付年份统计，100股整手买入，税前、无再投资，送转按公开事件调整股数。</p></section>'+
+    '。按除息支付年份统计，100股整手买入，税前、送转按公开事件调整股数。'+
+    (state.reinvest?'当前再投持股 '+decimal(sim.reinvested?.current_shares_estimated,0)+' 股，未使用现金 '+cny(sim.reinvested?.leftover_cash_cny)+'；现金分红按交易日收盘价以100股整数倍复购。':'历年分红直接取现，不再投资。')+'</p></section>'+
     '<section class="topic-section"><h3>风险与滚动总收益分布</h3>'+
     '<div class="metrics">'+metric("年化波动率",percent(risk.annual_volatility_pct))+metric("日收益CVaR 95%",percent(risk.daily_cvar_95_pct))+
        metric("Sortino (Rf=0)",valid(risk.sortino_zero_rf)?decimal(risk.sortino_zero_rf,2):"—")+
@@ -212,6 +224,12 @@ function renderDetail() {
       ' 数据只涵盖A股；特别分红需结合公告单独核实，静态股息率不等于可预测回报。</p>'+
       (entry?.errors?.length?'<p class="topic-error">'+entry.errors.map(escapeHtml).join("；")+'</p>':'')+
       '</section>';
+  document.querySelectorAll("[data-comparable]").forEach(button=>{
+    button.onclick=()=>{state.comparable=button.dataset.comparable==="yes";renderDetail();};
+  });
+  document.querySelectorAll("[data-reinvest]").forEach(button=>{
+    button.onclick=()=>{state.reinvest=button.dataset.reinvest==="yes";renderDetail();};
+  });
 }
 
 function renderCompare(){
@@ -226,7 +244,10 @@ function renderCompare(){
     ["最大回撤",r=>percent(data(r)?.risk?.max_drawdown_pct)],
     ["年化波动率",r=>percent(data(r)?.risk?.annual_volatility_pct)],
     ["100万元累计现金",r=>cny(data(r)?.simulation?.cumulative_cash_cny)],
-    ["未再投总回报",r=>percent(data(r)?.simulation?.total_return_pct_no_reinvest)]
+    ["未再投总回报",r=>percent(data(r)?.simulation?.total_return_pct_no_reinvest)],
+    ["股息再投总回报",r=>percent(data(r)?.simulation?.reinvested?.total_return_pct)],
+    ["2025成本股息率",r=>percent(data(r)?.simulation?.calendar_2025_yield_on_cost_pct)],
+    ["连续派息",r=>valid(stats(r).consecutive_years_to_2025)?stats(r).consecutive_years_to_2025+"年":"—"]
   ];
   section.innerHTML='<h2>跨公司比较 <small>'+rows.length+'/5</small></h2><div class="topic-table-scroll"><table class="topic-table"><thead><tr><th>指标</th>'+
   rows.map(r=>'<th>'+escapeHtml(r.name)+'<small>'+r.symbol+'</small></th>').join("")+

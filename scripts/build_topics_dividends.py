@@ -105,13 +105,19 @@ def normalize_events(raw_rows):
         if key in seen:
             continue
         seen.add(key)
-        bonus = number(row.get("BONUS_IT_RATIO")) or 0
+        gross_bonus_transfer = number(row.get("BONUS_IT_RATIO")) or 0
         transfer = number(row.get("IT_RATIO")) or 0
-        if bonus < 0 or transfer < 0 or bonus + transfer > 100:
+        # Eastmoney BONUS_IT_RATIO counts ALL delivered shares (bonus + transfer);
+        # IT_RATIO is its transfer component. Adding both double-counts transfers.
+        bonus = gross_bonus_transfer - transfer
+        if bonus < -1e-8 or transfer < 0 or gross_bonus_transfer > 100:
             raise ValueError("invalid share bonus/transfer ratio")
+        bonus = max(0, bonus)
         plan = str(row.get("IMPL_PLAN_PROFILE") or "")
         result.append({
             "fiscal_year": fy,
+            "report_date": report_date,
+            "period": "interim" if report_date[5:10] == "06-30" else ("annual" if report_date[5:10] == "12-31" else "other"),
             "ex_date": ex_date,
             "per_ten_cny": round(per_ten, 8),
             "cash_per_share_cny": round(per_ten / 10, 9),
@@ -154,29 +160,54 @@ def apply_verified_corrections(events, symbol, corrections=None):
     return revised
 
 
-def fiscal_history(events):
+def split_adjusted_events(events):
+    """Normalize pre-split cash to the latest equivalent share count.
+
+    Bonus/transfer ratios are explicitly reported per 10 shares. For several
+    events on one ex-date, apply that date's share action once.
+    """
+    result = [dict(e) for e in events]
+    dates = sorted({e["ex_date"] for e in result}, reverse=True)
+    factor = 1.0
+    for ex_date in dates:
+        same_day = [e for e in result if e["ex_date"] == ex_date]
+        ratios = {(e["bonus_per_ten"], e["transfer_per_ten"]) for e in same_day
+                  if e["bonus_per_ten"] or e["transfer_per_ten"]}
+        if len(ratios) > 1:
+            raise ValueError(f"conflicting corporate actions for {ex_date}")
+        if ratios:
+            bonus, transfer = next(iter(ratios))
+            factor *= 1 + (bonus + transfer) / 10
+        for event in same_day:
+            event["comparable_cash_per_share_cny"] = round(
+                event["cash_per_share_cny"] / factor, 9)
+            event["current_share_equivalence_factor"] = round(factor, 8)
+    return result
+
+
+def fiscal_history(events, *, comparable=False):
     years = {}
+    field = "comparable_cash_per_share_cny" if comparable else "cash_per_share_cny"
     for e in events:
         if not START_YEAR <= e["fiscal_year"] <= END_YEAR:
             continue
         key = str(e["fiscal_year"])
-        years[key] = years.get(key, 0) + e["cash_per_share_cny"]
+        years[key] = years.get(key, 0) + e[field]
     return {k: round(v, 8) for k, v in sorted(years.items())}
 
 
-def dividend_statistics(years, events):
-    """Missing is NOT zero, and a gap does NOT become a successful dividend year."""
+def dividend_statistics(years, events, *, comparable=False):
+    """Compute complete-decade CAGR only from comparable annual share units."""
     points = [(int(k), float(v)) for k, v in sorted(years.items()) if v > 0]
     pairs = [(a, b) for a, b in zip(points, points[1:]) if b[0] == a[0] + 1]
     cuts = [100 * (b[1] / a[1] - 1) for a, b in pairs if b[1] < a[1]]
     all_years = [str(y) for y in range(START_YEAR, END_YEAR + 1)]
-    missing = [y for y in all_years if y not in years]
+    missing = [y for y in all_years if y not in years or years[y] <= 0]
     corporate_action = any((e["bonus_per_ten"] or e["transfer_per_ten"]) and
                            e["ex_date"] >= f"{START_YEAR}-01-01" for e in events)
-    # Raw per-share growth is not comparable across bonus / transfer share changes.
     cagr = None
-    if not missing and not corporate_action and all(years[y] > 0 for y in all_years):
-        cagr = ((points[-1][1] / points[0][1]) ** (1 / (END_YEAR - START_YEAR)) - 1) * 100
+    if not missing and (not corporate_action or comparable):
+        cagr = ((years[str(END_YEAR)] / years[str(START_YEAR)]) ** (1 / (END_YEAR - START_YEAR)) - 1) * 100
     streak = 0
     for year in range(END_YEAR, START_YEAR - 1, -1):
         if years.get(str(year), 0) <= 0:
@@ -191,7 +222,8 @@ def dividend_statistics(years, events):
         "consecutive_years_to_2025": streak,
         "cagr_pct": round(cagr, 3) if cagr is not None else None,
         "full_2015_2025_coverage": not missing,
-        "share_adjustment_required": corporate_action,
+        "share_adjustment_required": corporate_action and not comparable,
+        "share_adjustment_applied": corporate_action and comparable,
     }
 
 
@@ -231,7 +263,12 @@ def risk_metrics(frame):
 
 
 def simulate_cashflow(frame, events, notional=NOTIONAL):
-    """Buy full A-share board lots once, adjust held units after stock bonuses."""
+    """Buy once, handle stock-share changes and optional cash reinvestment.
+
+    Yahoo historical Close is split-adjusted (but not cash-dividend-adjusted).
+    We reconstruct the price of the original share before bonus/transfer
+    events to avoid double-counting share splits in the initial unit count.
+    """
     if frame.empty:
         return None
     close = pd.to_numeric(frame["Close"], errors="coerce").dropna()
@@ -239,40 +276,80 @@ def simulate_cashflow(frame, events, notional=NOTIONAL):
     close = close[close > 0]
     if close.empty:
         return None
-    start_price = float(close.iloc[0])
-    shares = math.floor(notional / (start_price * 100)) * 100
+    start_date = close.index[0].date()
+    end_date = close.index[-1].date()
+    eligible = [e for e in sorted(events, key=lambda item: item["ex_date"])
+                if start_date <= date.fromisoformat(e["ex_date"]) <= end_date]
+    ratios_by_date = {}
+    for e in eligible:
+        if e["bonus_per_ten"] or e["transfer_per_ten"]:
+            ratio = 1 + (e["bonus_per_ten"] + e["transfer_per_ten"]) / 10
+            if e["ex_date"] in ratios_by_date and abs(ratios_by_date[e["ex_date"]] - ratio) > 1e-8:
+                raise ValueError("inconsistent split data for same ex date")
+            ratios_by_date[e["ex_date"]] = ratio
+    total_split_factor = math.prod(ratios_by_date.values())
+    initial_adjusted_price = float(close.iloc[0])
+    raw_start_price = initial_adjusted_price * total_split_factor
+    shares = math.floor(notional / (raw_start_price * 100)) * 100
     if shares <= 0:
         return None
     initial_shares = shares
-    start_date = close.index[0].date()
-    yearly_cash = {str(year): 0.0 for year in range(start_date.year, max(END_YEAR, date.today().year) + 1)}
-    for event in sorted(events, key=lambda item: item["ex_date"]):
-        ex_date = date.fromisoformat(event["ex_date"])
-        if ex_date < start_date or ex_date > date.today():
-            continue
-        key = str(ex_date.year)
-        if key not in yearly_cash:
-            continue
-        yearly_cash[key] += shares * event["cash_per_share_cny"]
-        ratio = 1 + (event["bonus_per_ten"] + event["transfer_per_ten"]) / 10.0
+    reinvested_shares = float(initial_shares)
+    unspent_dividend_cash = 0.0
+    payment_cash = {str(year): 0.0 for year in range(start_date.year, end_date.year + 1)}
+    reinvest_payment_cash = {year: 0.0 for year in payment_cash}
+    gross_reinvest_distributions = 0.0
+    grouped_dates = sorted({e["ex_date"] for e in eligible})
+    for day in grouped_dates:
+        daily_events = [e for e in eligible if e["ex_date"] == day]
+        cash_per_pre_split_share = sum(e["cash_per_share_cny"] for e in daily_events)
+        dividend = shares * cash_per_pre_split_share
+        reinvest_dividend = reinvested_shares * cash_per_pre_split_share
+        payment_cash[day[:4]] += dividend
+        reinvest_payment_cash[day[:4]] += reinvest_dividend
+        gross_reinvest_distributions += reinvest_dividend
+        unspent_dividend_cash += reinvest_dividend
+        ratio = ratios_by_date.get(day, 1.0)
         shares *= ratio
+        reinvested_shares *= ratio
+        later_multiplier = math.prod(value for when, value in ratios_by_date.items() if when > day)
+        when = date.fromisoformat(day)
+        candidate_prices = close.loc[close.index.date >= when]
+        if not candidate_prices.empty and unspent_dividend_cash > 0:
+            unadjusted_trade_price = float(candidate_prices.iloc[0]) * later_multiplier
+            lots = math.floor(unspent_dividend_cash / (unadjusted_trade_price * 100))
+            bought = lots * 100
+            reinvested_shares += bought
+            unspent_dividend_cash -= bought * unadjusted_trade_price
+    final_price = float(close.iloc[-1])
+    contributed = initial_shares * raw_start_price
+    collected = sum(payment_cash.values())
+    hold_value = shares * final_price
+    reinvest_value = reinvested_shares * final_price + unspent_dividend_cash
     return {
         "initial_notional_cny": int(notional),
-        "invested_cny": round(initial_shares * start_price, 2),
+        "invested_cny": round(contributed, 2),
         "start_date": start_date.isoformat(),
-        "initial_price_cny": round(start_price, 4),
+        "end_date": end_date.isoformat(),
+        "initial_price_cny": round(raw_start_price, 4),
         "initial_shares": initial_shares,
         "current_shares_estimated": round(shares, 4),
-        "cashflow_by_payment_year_cny": {y: round(value, 2) for y, value in yearly_cash.items()},
-        "cumulative_cash_cny": round(sum(yearly_cash.values()), 2),
-        "latest_position_value_cny": round(shares * float(close.iloc[-1]), 2),
-        "total_value_cny": round(shares * float(close.iloc[-1]) + sum(yearly_cash.values()), 2),
-        "total_return_pct_no_reinvest": round(
-            (shares * float(close.iloc[-1]) + sum(yearly_cash.values()))
-            / (initial_shares * start_price) * 100 - 100, 3),
-        "calendar_2025_yield_on_cost_pct": round(
-            yearly_cash.get("2025", 0) / (initial_shares * start_price) * 100, 3),
-        "assumptions": "2015 or first listed date, 100-share lots, no reinvestment, before tax/fees; share bonuses inferred only from disclosed events.",
+        "cashflow_by_payment_year_cny": {y: round(v, 2) for y, v in payment_cash.items()},
+        "cumulative_cash_cny": round(collected, 2),
+        "latest_position_value_cny": round(hold_value, 2),
+        "total_value_cny": round(hold_value + collected, 2),
+        "total_return_pct_no_reinvest": round((hold_value + collected) / contributed * 100 - 100, 3),
+        "calendar_2025_yield_on_cost_pct": round(payment_cash.get("2025", 0) / contributed * 100, 3),
+        "reinvested": {
+            "current_shares_estimated": round(reinvested_shares, 4),
+            "leftover_cash_cny": round(unspent_dividend_cash, 2),
+            "position_value_cny": round(reinvest_value, 2),
+            "total_return_pct": round(reinvest_value / contributed * 100 - 100, 3),
+            "dividends_reinvested_gross_cny": round(gross_reinvest_distributions, 2),
+            "cashflow_by_payment_year_cny": {y: round(v, 2) for y, v in reinvest_payment_cash.items()},
+        },
+        "stock_action_factor": round(total_split_factor, 8),
+        "assumptions": "2015 or first listed date, board lots of 100; Yahoo historical split-adjusted Close is reversed using declared bonus/transfer factors; no tax, fees, slippage or rights subscription.",
     }
 
 
@@ -333,17 +410,18 @@ def build_one(item, previous=None):
     errors = []
     events = []
     try:
-        events = apply_verified_corrections(normalize_events(eastmoney_history(symbol)), symbol)
+        events = split_adjusted_events(apply_verified_corrections(normalize_events(eastmoney_history(symbol)), symbol))
         if not events:
             raise ValueError("no implemented fiscal-year dividend events")
-        years = fiscal_history(events)
-        output.update({"events": events, "years": years,
-                       "statistics": dividend_statistics(years, events),
+        years = fiscal_history(events, comparable=True)
+        raw_years = fiscal_history(events)
+        output.update({"events": events, "years": years, "raw_years": raw_years,
+                       "statistics": dividend_statistics(years, events, comparable=True),
                        "status": "observed"})
     except Exception as exc:
         errors.append("dividend: " + str(exc)[:160])
         if previous and previous.get("events") and previous.get("years"):
-            for key in ("events", "years", "statistics"):
+            for key in ("events", "years", "raw_years", "statistics"):
                 output[key] = previous[key]
             output["status"] = "stale"
     try:
@@ -356,7 +434,7 @@ def build_one(item, previous=None):
             latest_year = output.get("years", {}).get(str(END_YEAR))
             output["implemented_fy_yield_pct"] = round(latest_year / current * 100, 3) if latest_year is not None else None
             cutoff = date.today() - timedelta(days=365)
-            ttm = sum(event["cash_per_share_cny"] for event in output["events"]
+            ttm = sum(event["comparable_cash_per_share_cny"] for event in output["events"]
                       if cutoff <= date.fromisoformat(event["ex_date"]) <= date.today())
             output["ttm_cash_yield_pct"] = round(ttm / current * 100, 3)
     except Exception as exc:
