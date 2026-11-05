@@ -61,6 +61,14 @@ class GitHubArchivePublisher:
         response.raise_for_status()
         return response.json()
 
+    def repository_size_kib(self) -> int:
+        """GitHub's repository object-store size estimate (KiB), all refs."""
+        meta = self._api("GET", "")
+        size = meta.get("size") if isinstance(meta, dict) else None
+        if type(size) is not int or size < 0:
+            raise RuntimeError("GitHub repository size unavailable")
+        return size
+
     def existing(self, paths: tuple[str, ...]) -> dict[str, str]:
         """Read only Git tree SHAs of requested immutable event-key paths.
 
