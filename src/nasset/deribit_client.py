@@ -87,6 +87,11 @@ class DeribitClient:
                     or any(type(v) not in (int, float) for v in candle[1:])):
                 raise DeribitError(f"DVOL {currency}: invalid OHLC candle")
             timestamp = candle[0]
+            opening, high, low, closing = candle[1:]
+            if (not all(math.isfinite(v) and v >= 0 for v in (opening, high, low, closing))
+                    or low > high or not low <= opening <= high
+                    or not low <= closing <= high):
+                raise DeribitError(f"DVOL {currency}: invalid OHLC values")
             if not start_ms <= timestamp < end_ms or timestamp in seen:
                 raise DeribitError(f"DVOL {currency}: out-of-window/duplicate candle")
             seen.add(timestamp)
