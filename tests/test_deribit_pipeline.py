@@ -93,7 +93,7 @@ def test_hourly_dvol_included_in_complete_live_batch():
     )
     assert len(batch.parts) == 8
     assert {x["currency"] for x in calls} == {"BTC", "ETH"}
-    assert all(x["end_timestamp"] == int(slot.timestamp() * 1000) for x in calls)
+    assert all(x["end_timestamp"] == int(slot.timestamp() * 1000) - 1 for x in calls)
     for asset in ("BTC", "ETH"):
         payload = next(v for k, v in batch.parts.items()
                        if f"/volatility_index/{asset}/" in k)
