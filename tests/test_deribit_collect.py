@@ -17,8 +17,6 @@ class Publisher:
         self.calls = []
         self.size = size
         self.fail_capacity = fail_capacity
-        self.receipts = []
-        self.complete = False
 
     def existing(self, paths):
         return {p: self.stored[p] for p in paths if p in self.stored}
@@ -142,7 +140,8 @@ def test_slot_receipt_stable_across_minute_and_dataset_order():
 
 def test_duplicate_utc_slot_skips_all_source_calls():
     pub = Publisher()
-    pub.complete = True
+    receipt = slot_receipt(config("historical_volatility", "delivery_price"), NOW)
+    pub.receipts[receipt[0]] = git_blob_sha(receipt[1])
     calls = []
     def forbidden(method, params):
         calls.append(method)
