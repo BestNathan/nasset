@@ -41,9 +41,10 @@ class FakeSession:
         if path == "/git/commits/tip":
             return Response(data={"tree": {"sha": "tree0"}})
         if method == "GET" and path.startswith("/git/trees/"):
-            tree_sha = path.split("/")[-1]
-            # Simulate non-recursive Git tree API: each response contains only
-            # direct children. Synthetic SHA is the directory prefix.
+            tree_sha = path.split("/")[-1].split("?")[0]
+            recursive = "?recursive=1" in path
+            # Simulate Git Data API with direct directory trees and bounded
+            # recursive responses relative to the requested year subtree.
             prefix = "" if tree_sha == "tree0" else tree_sha.removeprefix("dir:").replace("|", "/")
             children = {}
             for full_path, sha in self.paths.items():
@@ -51,7 +52,9 @@ class FakeSession:
                     continue
                 remaining = full_path[len(prefix):]
                 first, sep, _ = remaining.partition("/")
-                if sep:
+                if recursive:
+                    children[remaining] = {"path": remaining, "type": "blob", "sha": sha}
+                elif sep:
                     children[first] = {"path": first, "type": "tree",
                                        "sha": "dir:" + (prefix + first + "/").replace("/", "|")}
                 else:
@@ -187,7 +190,9 @@ def test_event_lookup_is_read_only_and_checks_only_requested_tree_paths():
     result = publisher(session).existing((EVENT_PATH,))
     assert result == {EVENT_PATH: sha}
     assert all(method == "GET" for method, _, _ in session.calls)
-    assert not any("?recursive" in path for _, path, _ in session.calls)
+    annual = [path for _, path, _ in session.calls if "?recursive=1" in path]
+    assert len(annual) == 1
+    assert all(method == "GET" for method, _, _ in session.calls)
 
 
 def test_event_lookup_returns_empty_before_orphan_initialization():
@@ -428,3 +433,30 @@ def test_candidate_tree_failure_never_publishes_archive_ref():
     assert not any(method == "PATCH" for method, _, _ in session.calls)
     assert not any(method == "POST" and path == "/git/commits"
                    for method, path, _ in session.calls)
+
+
+def test_history_lookup_scales_by_year_not_event_count():
+    # Two years, many individual native event keys. Never recurse from root.
+    paths = {
+        f"deribit/event_keys/historical_volatility/BTC/{year}/11/14/{1700000000000 + i}.key":
+        f"sha-{year}-{i}"
+        for year in (2023, 2024) for i in range(420)
+    }
+    session = FakeSession(existing=True, paths=paths)
+    found = publisher(session).existing(tuple(sorted(paths)))
+    assert found == paths
+    annual = [path for method, path, _ in session.calls
+              if method == "GET" and "?recursive=1" in path]
+    assert len(annual) == 2
+    assert all("dir:" in p for p in annual)
+    assert all(not p.startswith("/git/trees/tree0?recursive") for p in annual)
+    # Prefix traversal is shared for both years and does not grow with rows.
+    assert len([p for method, p, _ in session.calls if method == "GET"]) < 16
+    assert all(method == "GET" for method, _, _ in session.calls)
+
+
+def test_history_scoped_year_truncation_fails_closed():
+    session = FakeSession(existing=True, paths={EVENT_PATH: "exists"}, truncated=True)
+    with pytest.raises(RuntimeError, match="truncated"):
+        publisher(session).existing((EVENT_PATH,))
+    assert all(method == "GET" for method, _, _ in session.calls)
