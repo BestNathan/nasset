@@ -7,14 +7,14 @@ a production run with the full configured scope can be enabled.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Mapping
 
 from .deribit_archive import ArchiveConfig
 from .deribit_client import DeribitClient, DeribitError
 from .deribit_parquet import SCHEMAS, encode_part, part_path
 
-LIVE_DATASETS = frozenset({"option_chain", "index_price", "futures_curve"})
+LIVE_DATASETS = frozenset({"option_chain", "index_price", "futures_curve", "volatility_index"})
 
 
 @dataclass(frozen=True)
@@ -44,27 +44,30 @@ def prepare_live_batch(config: ArchiveConfig, client: DeribitClient, now: dateti
         )
 
     by_name = {ds.name: ds for ds in due}
-    asset_sets = [set(ds.underlyings) for ds in due]
+    asset_sets = [set(ds.underlyings) for ds in due if ds.name != "volatility_index"]
     # DeribitClient.snapshot() requires a complete quote set for each selected
     # instrument kind, so gather the union and filter rows by dataset scope.
     assets = tuple(sorted(set().union(*asset_sets)))
-    snapshot = client.snapshot(
-        assets,
-        include_options="option_chain" in by_name,
-        include_futures="futures_curve" in by_name,
-        include_indices="index_price" in by_name,
-    )
-    captured = snapshot.captured_at
-    if captured.tzinfo is None:
-        raise DeribitError("client returned naive captured_at")
-    if captured.astimezone(timezone.utc) > instant:
-        raise DeribitError("snapshot capture time is later than requested time")
-    # Never backdate a fresh quote into a historical hour.
-    if captured.astimezone(timezone.utc).replace(minute=0, second=0, microsecond=0) != slot:
-        raise DeribitError("snapshot capture hour differs from requested UTC slot")
+    snapshot = None
+    captured = instant
+    if assets:
+        snapshot = client.snapshot(
+            assets,
+            include_options="option_chain" in by_name,
+            include_futures="futures_curve" in by_name,
+            include_indices="index_price" in by_name,
+        )
+        captured = snapshot.captured_at
+        if captured.tzinfo is None:
+            raise DeribitError("client returned naive captured_at")
+        if captured.astimezone(timezone.utc) > instant:
+            raise DeribitError("snapshot capture time is later than requested time")
+        if captured.astimezone(timezone.utc).replace(minute=0, second=0, microsecond=0) != slot:
+            raise DeribitError("snapshot capture hour differs from requested UTC slot")
 
     parts: dict[str, bytes] = {}
-    for name, rows in (("option_chain", snapshot.options), ("futures_curve", snapshot.futures)):
+    for name, rows in (("option_chain", snapshot.options if snapshot else ()),
+                       ("futures_curve", snapshot.futures if snapshot else ())):
         if name not in by_name:
             continue
         ds = by_name[name]
@@ -104,6 +107,24 @@ def prepare_live_batch(config: ArchiveConfig, client: DeribitClient, now: dateti
             "index_price", _project("index_price", indices), slot=slot,
             captured_at=captured, compression_level=config.compression_level,
         )
+    if "volatility_index" in by_name:
+        ds = by_name["volatility_index"]
+        # Last fully closed hourly candle, not an incomplete current hour.
+        end_ms = int(slot.timestamp() * 1000)
+        start_ms = int((slot - timedelta(hours=1)).timestamp() * 1000)
+        for asset in ds.underlyings:
+            if asset not in {"BTC", "ETH"}:
+                raise DeribitError(f"DVOL unsupported asset: {asset}")
+            candles = client.volatility_candles(
+                asset, start_ms=start_ms, end_ms=end_ms,
+                resolution=str(ds.options["resolution"]),
+            )
+            parts[part_path("volatility_index", slot, underlying=asset)] = encode_part(
+                "volatility_index", list(candles), slot=slot, captured_at=instant,
+                compression_level=config.compression_level,
+            )
+    if not parts:
+        raise DeribitError("no parts prepared for due datasets")
     return PreparedBatch(slot, parts, tuple(ds.name for ds in due))
 
 
