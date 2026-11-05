@@ -55,9 +55,13 @@ def collect_once(
     summaries: dict[str, dict[str, int]] = defaultdict(lambda: {"rows": 0, "bytes": 0, "parts": 0})
     parquet_paths = []
     marker_count = 0
+    coverage_paths = []
     for path, payload in sorted(batch.parts.items()):
         if path.endswith(".key"):
             marker_count += 1
+            continue
+        if path.endswith(".json"):
+            coverage_paths.append(path)
             continue
         parquet_paths.append(path)
         meta = pq.read_metadata(BytesIO(payload))
@@ -74,6 +78,11 @@ def collect_once(
         "paths": parquet_paths,
         "metrics": dict(sorted(summaries.items())),
         "event_keys": marker_count,
+        "unlisted": [
+            {"dataset": dataset, "underlying": asset, "listed_count": 0}
+            for dataset, asset in batch.unlisted
+        ],
+        "coverage_manifests": coverage_paths,
         "parquet_bytes": sum(len(batch.parts[p]) for p in parquet_paths),
         "batch_bytes": sum(map(len, batch.parts.values())),
     }
