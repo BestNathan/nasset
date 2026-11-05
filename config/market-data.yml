@@ -1,0 +1,19 @@
+# Market data archival plan (issue #6).
+# The collector/workflow is not yet enabled. Modify only underlyings to add another asset.
+version: 1
+
+storage:
+  branch: market-data
+  format: parquet
+  compression: zstd
+  compression_level: 6
+
+sources:
+  deribit:
+    enabled: true
+    datasets:
+      option_chain:
+        enabled: true
+        # Base/underlying currencies, NOT Deribit settlement currency query values.
+        # To add gold options: [BTC, ETH, PAXG]
+        underlyings: [BTC, ETH]
