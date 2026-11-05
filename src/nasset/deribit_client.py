@@ -129,6 +129,58 @@ class DeribitClient:
         return tuple(dict(base_currency=currency, event_timestamp=timestamp,
                           volatility=value) for timestamp, value in sorted(seen.items()))
 
+    def delivery_prices(self, index_name: str, *, page_size: int = 1000,
+                        max_pages: int = 100) -> tuple[dict[str, Any], ...]:
+        """Read all native finalized delivery events for one exact index name.
+
+        Deribit's offset/count pagination returns data and records_total.
+        Never confuse this finalized settlement series with the estimated
+        delivery price in get_index_price. A genuinely empty series is valid.
+        """
+        if (not isinstance(index_name, str) or not index_name
+                or not all(c.isascii() and (c.islower() or c.isdigit() or c == "_")
+                           for c in index_name)):
+            raise ValueError("invalid exact delivery index_name")
+        if type(page_size) is not int or not 1 <= page_size <= 1000:
+            raise ValueError("invalid delivery page_size")
+        if type(max_pages) is not int or max_pages < 1:
+            raise ValueError("invalid delivery max_pages")
+        events: dict[int, float] = {}
+        total: int | None = None
+        offset = 0
+        for _ in range(max_pages):
+            result = self.call("get_delivery_prices", index_name=index_name,
+                               offset=offset, count=page_size)
+            if (not isinstance(result, dict) or not isinstance(result.get("data"), list)
+                    or type(result.get("records_total")) is not int
+                    or result["records_total"] < 0):
+                raise DeribitError(f"delivery {index_name}: malformed pagination")
+            if total is None:
+                total = result["records_total"]
+            elif result["records_total"] != total:
+                raise DeribitError(f"delivery {index_name}: source pagination changed")
+            data = result["data"]
+            if len(data) > page_size or offset + len(data) > total:
+                raise DeribitError(f"delivery {index_name}: inconsistent page size")
+            if offset < total and not data:
+                raise DeribitError(f"delivery {index_name}: incomplete page")
+            for item in data:
+                if (not isinstance(item, dict) or type(item.get("date")) is not int
+                        or item["date"] <= 0 or type(item.get("delivery_price")) not in (int, float)
+                        or not math.isfinite(item["delivery_price"])
+                        or item["delivery_price"] < 0):
+                    raise DeribitError(f"delivery {index_name}: invalid event")
+                stamp, price = item["date"], item["delivery_price"]
+                if stamp in events and events[stamp] != price:
+                    raise DeribitError(f"delivery {index_name}: conflicting event")
+                events[stamp] = price
+            offset += len(data)
+            if offset == total:
+                return tuple(dict(index_name=index_name, event_timestamp=stamp,
+                                  delivery_price=price)
+                             for stamp, price in sorted(events.items()))
+        raise DeribitError(f"delivery {index_name}: pagination limit exceeded")
+
     def instruments(self, *, kinds: tuple[str, ...] = ("option", "future")) -> tuple[dict[str, Any], ...]:
         found: dict[str, dict[str, Any]] = {}
         for kind in kinds:
