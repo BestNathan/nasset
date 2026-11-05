@@ -96,7 +96,7 @@ For delivery events store `index_name`, native event date/time, native delivery 
 
 - The hourly DVOL adapter requests Deribit's `get_volatility_index_data` for the **last fully completed UTC hour** `[slot-1h, slot)`, not a partial candle for the current hour.
 - Preserve each native candle timestamp and OHLC in a typed `volatility_index/BTC|ETH/YYYY/MM/DD/HH00.parquet` part; `snapshot_slot_at` identifies when the collector archived the closed candle, while `event_timestamp` identifies the market observation.
-- A missing candle, malformed response, duplicate/out-of-window event or pagination continuation fails the entire due batch. PAXG remains outside the DVOL allowlist until Deribit support is verified. Historical volatility and finalized delivery-event ingestion are not implemented yet, so the full default configuration still fails closed.
+- A missing candle, malformed response, duplicate/out-of-window event or pagination continuation fails the entire due batch. PAXG remains outside the DVOL allowlist until Deribit support is verified. Historical volatility and finalized delivery-event REST adapters now exist, but event-level incremental filtering, complete batch orchestration and live contract verification are not implemented; the full default configuration still fails closed.
 - Offline fixture tests cover DVOL-only requests, the combined live batch, and failure semantics. Do not claim a live Deribit contract test or production readiness from these fixtures.
 
 ## Capacity and future rolling policy (design only)
@@ -114,7 +114,14 @@ For delivery events store `index_name`, native event date/time, native delivery 
 - Ref update uses `force=false`. A concurrent update can reject the fast-forward; the caller must re-read the branch and retry the whole batch. The publisher itself does not silently retry an uncertain ref outcome.
 - `tests/test_deribit_publish.py` uses a fake HTTP session to verify orphan initialization, atomic one-commit batches, idempotent replay, partial/conflicting slots, truncated trees, invalid payloads and ref races.
 - **Not yet wired into a collector or workflow**. A future orchestration step must ensure every due dataset and configured symbol is complete *before* calling `publish`, and must reconcile event-level incremental deduplication separately from per-slot path immutability.
-- Current implementation requests a recursive Git tree for path checking. This avoids blob downloads but may become inefficient or truncated as the archive grows. Before large-scale deployment, replace it with targeted path-tree traversal or a compact immutable manifest/index, with explicit correctness tests.
+- Current implementation resolves only target paths via non-recursive Git tree traversal and caches shared prefixes; it never requests the entire historical recursive tree. Keep monitoring per-directory tree size and Git object growth.
+
+## Finalized delivery-price REST pagination (implementation in PR #7)
+
+- `DeribitClient.delivery_prices(index_name)` queries the exact source index identifier through `get_delivery_prices` with explicit `offset`/`count` pagination. It requires a stable `records_total` and fails closed on missing pages, changing totals, malformed or conflicting native `date` events, and page limits. A source-reported empty series is valid.
+- Native `date` is retained as `event_timestamp` in milliseconds, separate from collection time; `delivery_price` is finalized settlement data, not `estimated_delivery_price` from `get_index_price`. The adapter does not infer underlying currency from an index suffix or invent events.
+- These pagination assumptions require verification against real Deribit responses before production. The adapter **does not yet implement event-level incremental filtering across archived slots**, delayed-event recovery, or daily batch wiring. The default pipeline deliberately refuses a due delivery dataset until these exist.
+- Offline tests cover multi-page responses, zero-event history, malformed values, changing totals, conflicting timestamps and bounded page exhaustion.
 
 ## Validation and consumption
 
