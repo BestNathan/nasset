@@ -43,6 +43,22 @@ References:
 - For `delivery_price`, obtain records by full index name and preserve the **settlement event date/time**, not merely the collection time; deduplicate overlapping paginated lookbacks by an event key including index name and native event timestamp/date.
 - Fail visibly on unrecognized configured symbols, incompatible dataset capability or missing required data; an API success with an empty response is not automatically a healthy snapshot. A legitimate no-new-delivery-events result, however, is not a failure.
 
+## Verified zero-listing capabilities and completeness
+
+The 2026-11-05 live Deribit probe returned **zero listed PAXG options**, despite listing one PAXG future and the `paxg_usdc` index. A missing market product is **not** an API failure, but it must never be confused with an incomplete quote response.
+
+- `option_chain.allow_unlisted: [PAXG]` makes this a narrow, explicit, validated exception. All other configured option underlyings remain strict. Adding a contract later automatically resumes ordinary option-chain output.
+- For `futures_curve`, absence of a listed futures product for one base is an allowed optional product state; an absent quote for an actually listed future **always fails** the whole batch.
+- On a verified zero-listing, write `deribit/coverage/YYYY/MM/DD/HH00.json` with the exact UTC slot, actual observation time, dataset, base underlying and `listed_count: 0`. Commit it atomically with the same slot's validated Parquet datasets and completion receipt. The lack of an asset-specific Parquet part is then auditable, not silently dropped or represented as a fabricated zero price.
+- The read-only probe reports such explicit absences as **informational** `capability_gaps`. Zero listings for strict options or a failed/empty source response for **listed** contracts are blocking. Probe results do not authorize turning on the production publisher without further checks.
+- Coverage manifests are control-plane JSON records, not raw market prices. All market time-series records remain Parquet/ZSTD.
+
+### Measured read-only baseline (2026-11-05 16:57 UTC)
+
+One actual live public-API probe measured 2,954 listed BTC+ETH options and no PAXG options. It encoded the resulting enabled snapshot datasets into **140,320 ZSTD-Parquet bytes**: option chain 107,250, futures 22,001, indexes 3,533, DVOL 7,536. Futures and index data included listed PAXG contracts/references. This was an in-memory **probe**, never published to `market-data`.
+
+At a hypothetical constant 140,320 bytes for each of 8,760 hourly snapshots, base Parquet bytes would be roughly **1.23 GB/year**, excluding historical-event parts, coverage JSON, Git history and growth in contract counts. Do not extrapolate this single live sample as an SLA, and keep the more conservative storage monitoring budget.
+
 ## Time and price semantics
 
 - `captured_at` is the **actual API request/response observation time**. `snapshot_slot_at` is the UTC scheduled bucket, not an assertion that the value existed at the exact beginning of that slot.
