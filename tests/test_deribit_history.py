@@ -41,7 +41,7 @@ def transport(method, params):
         return [[OLD, 50.0]]
     if method == "get_delivery_prices":
         return {"records_total": 1, "data": [
-            {"date": OLD, "delivery_price": 100.0}
+            {"date": "2023-11-14", "delivery_price": 100.0}
         ]}
     return fixture_transport(method, params)
 
@@ -86,6 +86,8 @@ def test_incremental_delivery_and_hv_combine_with_snapshot_in_one_batch():
     settled = pq.read_table(BytesIO(next(v for k, v in parquet_parts.items()
                                          if "/delivery_price/" in k)))
     assert settled.num_rows == 4
+    assert settled.column("event_date").to_pylist() == ["2023-11-14"] * 4
+    assert "event_timestamp" not in settled.column_names
     assert set(settled.column("index_name").to_pylist()) == {
         "btc_usd", "btc_usdc", "eth_usd", "paxg_usdc"
     }
@@ -164,3 +166,17 @@ def test_future_dated_and_invalid_identity_are_rejected():
     row["event_timestamp"] = OLD
     with pytest.raises(ValueError, match="identity"):
         event_marker("delivery_price", "../bad", row, observed_at=NOW)
+
+
+def test_settlement_marker_preserves_native_day_and_rejects_future():
+    row = {"index_name": "btc_usd", "event_date": "2023-11-14",
+           "delivery_price": 42000.0}
+    path, payload = event_marker("delivery_price", "btc_usd", row, observed_at=NOW)
+    assert path == (
+        "deribit/event_keys/delivery_price/btc_usd/2023/11/14/2023-11-14.key"
+    )
+    assert b'"date":"2023-11-14"' in payload
+    assert b'"timestamp":' not in payload
+    with pytest.raises(ValueError, match="future-dated"):
+        event_marker("delivery_price", "btc_usd",
+                     {**row, "event_date": "2099-01-01"}, observed_at=NOW)
