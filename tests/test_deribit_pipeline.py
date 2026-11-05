@@ -131,3 +131,33 @@ def test_dvol_missing_or_truncated_rejects_whole_batch():
     with pytest.raises(DeribitError, match="no candles"):
         prepare_live_batch(config("option_chain", "volatility_index"),
                            DeribitClient(transport=transport), now)
+
+
+def test_index_only_batch_discovers_indices_without_book_summaries():
+    now = datetime.now(timezone.utc).replace(minute=59, second=59, microsecond=999999)
+    calls = []
+
+    def transport(method, params):
+        calls.append(method)
+        return fixture_transport(method, params)
+
+    batch = prepare_live_batch(config("index_price"),
+                               DeribitClient(transport=transport), now)
+    assert len(batch.parts) == 1
+    assert "get_index_price" in calls
+    assert "get_book_summary_by_currency" not in calls
+    table = pq.read_table(BytesIO(next(iter(batch.parts.values()))))
+    assert set(table.column("index_name").to_pylist()) == {
+        "btc_usd", "btc_usdc", "eth_usd", "paxg_usdc"
+    }
+
+
+def test_scheduler_time_is_not_a_capture_completion_deadline():
+    # A live request completes after the scheduler invokes the pipeline.
+    # This must not reject a valid snapshot within the same UTC hour.
+    from datetime import timedelta
+    now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    batch = prepare_live_batch(config("option_chain"),
+                               DeribitClient(transport=fixture_transport), now)
+    assert len(batch.parts) == 3
+    assert batch.slot == now
