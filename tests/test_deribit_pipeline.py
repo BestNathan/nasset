@@ -56,8 +56,8 @@ def test_unimplemented_due_dataset_prevents_all_rest_calls():
     def transport(method, params):
         calls.append(method)
         return fixture_transport(method, params)
-    cfg = config("option_chain", "volatility_index")
-    with pytest.raises(NotImplementedError, match="volatility_index"):
+    cfg = config("option_chain", "historical_volatility")
+    with pytest.raises(NotImplementedError, match="historical_volatility"):
         prepare_live_batch(cfg, DeribitClient(transport=transport), datetime.now(timezone.utc))
     assert not calls
 
@@ -71,3 +71,63 @@ def test_missing_source_rows_never_returns_partial_batch():
     with pytest.raises(DeribitError, match="missing book summaries"):
         prepare_live_batch(config("option_chain", "index_price"),
                            DeribitClient(transport=missing), now)
+
+
+def test_hourly_dvol_included_in_complete_live_batch():
+    from datetime import timedelta
+    now = datetime.now(timezone.utc).replace(minute=59, second=59, microsecond=999999)
+    slot = now.replace(minute=0, second=0, microsecond=0)
+    expected = int((slot - timedelta(hours=1)).timestamp() * 1000)
+    calls = []
+
+    def transport(method, params):
+        if method == "get_volatility_index_data":
+            calls.append(params)
+            return {"data": [[expected, 50.0, 53.0, 48.0, 51.0]],
+                    "continuation": None}
+        return fixture_transport(method, params)
+
+    batch = prepare_live_batch(
+        config("option_chain", "index_price", "futures_curve", "volatility_index"),
+        DeribitClient(transport=transport), now,
+    )
+    assert len(batch.parts) == 8
+    assert {x["currency"] for x in calls} == {"BTC", "ETH"}
+    assert all(x["end_timestamp"] == int(slot.timestamp() * 1000) for x in calls)
+    for asset in ("BTC", "ETH"):
+        payload = next(v for k, v in batch.parts.items()
+                       if f"/volatility_index/{asset}/" in k)
+        table = pq.read_table(BytesIO(payload))
+        assert table.column("event_timestamp").to_pylist() == [expected]
+        assert table.column("close").to_pylist() == [51.0]
+
+
+def test_dvol_only_batch_does_not_query_instrument_catalog():
+    from datetime import timedelta
+    now = datetime.now(timezone.utc).replace(minute=59, second=59, microsecond=999999)
+    slot = now.replace(minute=0, second=0, microsecond=0)
+    expected = int((slot - timedelta(hours=1)).timestamp() * 1000)
+    calls = []
+
+    def transport(method, params):
+        calls.append(method)
+        assert method == "get_volatility_index_data"
+        return {"data": [[expected, 10, 11, 9, 10.5]], "continuation": None}
+
+    batch = prepare_live_batch(config("volatility_index"),
+                               DeribitClient(transport=transport), now)
+    assert len(batch.parts) == 2
+    assert calls == ["get_volatility_index_data"] * 2
+
+
+def test_dvol_missing_or_truncated_rejects_whole_batch():
+    now = datetime.now(timezone.utc).replace(minute=59, second=59, microsecond=999999)
+
+    def transport(method, params):
+        if method == "get_volatility_index_data":
+            return {"data": [], "continuation": None}
+        return fixture_transport(method, params)
+
+    with pytest.raises(DeribitError, match="no candles"):
+        prepare_live_batch(config("option_chain", "volatility_index"),
+                           DeribitClient(transport=transport), now)
