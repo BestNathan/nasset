@@ -12,19 +12,16 @@ sources:
   deribit:
     enabled: true
     # Underlying/base assets, NOT the API settlement currency.
-    # PAXG derivatives are discoverable; skip unavailable per-dataset products
-    # only after recording explicit capability/coverage status.
+    # Retain PAXG index/settlement/futures data; do not collect PAXG options.
     underlyings: [BTC, ETH, PAXG]
     datasets:
       # Hourly current-market snapshots, taken at minute 37 UTC.
       option_chain:
         enabled: true
         interval_hours: 1
-        # PAXG currently has a listed future but no active options.
-        # Verify the complete instrument catalog every run and persist a
-        # per-slot unlisted-capability manifest instead of inventing quotes.
-        # BTC/ETH missing contracts remain fatal.
-        allow_unlisted: [PAXG]
+        # BTC/ETH only. PAXG options were delisted; keep its other
+        # configured datasets independent of option-chain quote coverage.
+        underlyings: [BTC, ETH]
 
       index_price:
         enabled: true
