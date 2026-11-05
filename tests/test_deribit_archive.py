@@ -63,3 +63,20 @@ def test_invalid_scope_and_interval():
     raw["sources"]["deribit"]["datasets"]["volatility_index"]["underlyings"] = ["DOGE"]
     with pytest.raises(ValueError, match="within shared"):
         parse_config(raw)
+
+
+@pytest.mark.parametrize("dataset", ["volatility_index", "historical_volatility"])
+def test_volatility_datasets_reject_paxg_before_network(dataset):
+    doc = {
+        "version": 1,
+        "storage": {"branch": "market-data", "format": "parquet",
+                    "compression": "zstd", "compression_level": 6},
+        "sources": {"deribit": {"enabled": True,
+                                "underlyings": ["BTC", "ETH", "PAXG"],
+                                "datasets": {dataset: {"enabled": True,
+                                                       "interval_hours": 24,
+                                                       "underlyings": ["BTC", "PAXG"],
+                                                       **({"resolution": "3600"} if dataset == "volatility_index" else {})}}}},
+    }
+    with pytest.raises(ValueError, match="BTC/ETH only"):
+        parse_config(doc)
