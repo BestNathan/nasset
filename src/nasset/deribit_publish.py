@@ -167,7 +167,22 @@ class GitHubArchivePublisher:
             return False
         if existing[path] != git_blob_sha(payload):
             raise PublishConflict(f"UTC slot already published with different due config: {path}")
+        required = self._receipt_required_paths(payload)
+        present = self._existing_paths(commit["tree"]["sha"], required)
+        if set(present) != set(required):
+            raise PublishConflict("UTC slot receipt exists but mandatory Parquet paths are absent")
         return True
+
+    @staticmethod
+    def _receipt_required_paths(payload: bytes) -> tuple[str, ...]:
+        try:
+            paths = json.loads(payload[len(SLOT_PREFIX):])["required_paths"]
+        except (ValueError, KeyError, TypeError) as exc:
+            raise ValueError("receipt lacks mandatory path manifest") from exc
+        if (not isinstance(paths, list) or len(paths) != len(set(paths))
+                or any(not isinstance(path, str) or not _PATH.fullmatch(path) for path in paths)):
+            raise ValueError("invalid receipt mandatory paths")
+        return tuple(paths)
 
     @staticmethod
     def _validate_receipt(path: str, payload: bytes) -> None:
@@ -175,6 +190,7 @@ class GitHubArchivePublisher:
             raise ValueError(f"invalid UTC slot receipt path: {path!r}")
         if not isinstance(payload, bytes) or not payload.startswith(SLOT_PREFIX) or len(payload) > 16384:
             raise ValueError(f"invalid UTC slot receipt payload: {path}")
+        GitHubArchivePublisher._receipt_required_paths(payload)
 
     @staticmethod
     def _validate_coverage(path: str, payload: bytes) -> None:
@@ -230,6 +246,8 @@ class GitHubArchivePublisher:
                 raise ValueError("coverage manifest must belong to the receipt UTC slot")
             if receipt_path in parts:
                 raise ValueError("receipt path must not appear in raw parts")
+            if not set(self._receipt_required_paths(receipt_payload)).issubset(parts):
+                raise ValueError("batch missing mandatory snapshot Parquet paths")
             parts = {**parts, receipt_path: receipt_payload}
         for path, payload in parts.items():
             if not isinstance(path, str) or not (_PATH.fullmatch(path) or _EVENT_KEY_PATH.fullmatch(path)
