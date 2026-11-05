@@ -61,6 +61,41 @@ class DeribitClient:
                 raise DeribitError(f"{method}: HTTP/JSON error") from exc
         raise AssertionError("unreachable")
 
+    def volatility_candles(self, currency: str, *, start_ms: int, end_ms: int,
+                           resolution: str = "3600") -> tuple[dict[str, Any], ...]:
+        """Fetch native Deribit DVOL OHLC candles for an explicit supported asset.
+
+        Deribit returns [timestamp_ms, open, high, low, close] tuples. A zero-
+        candle result is not evidence of a valid market snapshot; fail closed.
+        The caller owns the supported-currency allowlist (BTC/ETH in v1).
+        """
+        if not currency or start_ms >= end_ms or resolution != "3600":
+            raise ValueError("invalid DVOL request interval/resolution")
+        result = self.call("get_volatility_index_data", currency=currency,
+                           start_timestamp=start_ms, end_timestamp=end_ms,
+                           resolution=resolution)
+        if not isinstance(result, dict) or not isinstance(result.get("data"), list):
+            raise DeribitError(f"DVOL {currency}: malformed result")
+        if result.get("continuation") is not None:
+            raise DeribitError(f"DVOL {currency}: truncated response; pagination required")
+        rows = []
+        seen = set()
+        for candle in result["data"]:
+            if (not isinstance(candle, (list, tuple)) or len(candle) != 5
+                    or not isinstance(candle[0], int)
+                    or any(type(v) not in (int, float) for v in candle[1:])):
+                raise DeribitError(f"DVOL {currency}: invalid OHLC candle")
+            timestamp = candle[0]
+            if not start_ms <= timestamp < end_ms or timestamp in seen:
+                raise DeribitError(f"DVOL {currency}: out-of-window/duplicate candle")
+            seen.add(timestamp)
+            rows.append(dict(base_currency=currency, event_timestamp=timestamp,
+                             open=candle[1], high=candle[2], low=candle[3],
+                             close=candle[4]))
+        if not rows:
+            raise DeribitError(f"DVOL {currency}: no candles for requested hour")
+        return tuple(sorted(rows, key=lambda row: row["event_timestamp"]))
+
     def instruments(self, *, kinds: tuple[str, ...] = ("option", "future")) -> tuple[dict[str, Any], ...]:
         found: dict[str, dict[str, Any]] = {}
         for kind in kinds:
