@@ -221,7 +221,9 @@ class DeribitClient:
     def snapshot(self, underlyings: tuple[str, ...], *,
                  include_options: bool = True, include_futures: bool = True,
                  include_indices: bool = True,
-                 allow_unlisted: tuple[str, ...] = ()) -> MarketSnapshot:
+                 allow_unlisted: tuple[str, ...] = (),
+                 option_underlyings: tuple[str, ...] | None = None,
+                 futures_underlyings: tuple[str, ...] | None = None) -> MarketSnapshot:
         """Collect all relevant settlement partitions, joining exact instrument IDs.
 
         If any expected instrument is absent from the summary, abort the entire
@@ -243,8 +245,19 @@ class DeribitClient:
             raise ValueError("allow_unlisted must be within requested underlying scope")
         relevant = {i["instrument_name"]: i for i in catalog
                     if i.get("base_currency") in scope}
+        # Quote kinds have independent configured asset scopes. A shared
+        # index/futures asset (e.g. PAXG) must never silently broaden the
+        # option chain when the option dataset is deliberately BTC/ETH-only.
+        quote_scopes = {
+            "option": set(underlyings if option_underlyings is None else option_underlyings),
+            "future": set(underlyings if futures_underlyings is None else futures_underlyings),
+        }
+        for kind in kinds:
+            if not quote_scopes[kind].issubset(scope):
+                raise ValueError(f"{kind} quote scope must be within requested underlyings")
         selected = {name: i for name, i in relevant.items()
-                    if i.get("kind") in kinds}
+                    if i.get("kind") in kinds
+                    and i.get("base_currency") in quote_scopes[i["kind"]]}
         for asset in underlyings:
             if not any(i.get("base_currency") == asset for i in
                        (relevant.values() if include_indices else selected.values())):
