@@ -51,13 +51,13 @@ def test_live_batch_projects_exchange_fields_and_partitions_assets():
     }
 
 
-def test_unimplemented_due_dataset_prevents_all_rest_calls():
+def test_history_without_event_ledger_prevents_all_rest_calls():
     calls = []
     def transport(method, params):
         calls.append(method)
         return fixture_transport(method, params)
     cfg = config("option_chain", "historical_volatility")
-    with pytest.raises(NotImplementedError, match="historical_volatility"):
+    with pytest.raises(ValueError, match="event-key lookup"):
         prepare_live_batch(cfg, DeribitClient(transport=transport), datetime.now(timezone.utc))
     assert not calls
 
