@@ -280,3 +280,43 @@ currently listed option/future instruments, how `is_active=false` catalog
 entries relate to book summaries, and whether the configured product scope
 must change. Changes to that scope require explicit acceptance evidence and
 an updated config, not a fabricated historical record.
+
+
+#### Measured public-source sample — 2026-11-05 15:47 UTC
+
+Read-only job [42058417317](https://github.com/BestNathan/nasset/actions/runs/42058417317)
+queried the **actual Deribit public API**; all measurements below were encoded
+with PyArrow/ZSTD in memory and were **never published to Git**:
+
+| Dataset | Native source rows | Parquet parts | Compressed bytes | Coverage |
+| --- | ---: | ---: | ---: | --- |
+| Option chain | 2,938 | 2 | 107,246 | BTC 1,574; ETH 1,364; PAXG 0 |
+| Futures curve | 47 | 3 | 22,060 | BTC 23; ETH 23; PAXG 1 |
+| Index price | 5 | 1 | 3,533 | btc_usd, btc_usdc, eth_usd, eth_usdc, paxg_usdc |
+| Volatility index (DVOL) | 2 | 2 | 7,536 | BTC and ETH, previous completed hour |
+| **Total measured** | **2,992** | **8** | **140,375** | One-hour source sample, not a full historical archive |
+
+The source reported 370 supported index identifiers. Sample-only finalized
+delivery counts: btc_usd 2,660; btc_usdc 1,702; eth_usd 2,500;
+eth_usdc 1,697; paxg_usdc 758. Historical-volatility response length
+was 383 observations each for BTC and ETH. Delivery was sampled at two
+records per index; **full pagination is not yet verified live**.
+
+The **blocking gap** is PAXG `option_chain` with zero listed option contracts
+at this point in time. The probe intentionally excluded only that unavailable
+asset/dataset from its *measurement*, reported the gap explicitly, and exited
+nonzero. This does not permit the production collector to silently omit PAXG:
+an explicit capability status and fail-closed dataset policy are still needed
+before enabling scheduled collection.
+
+Earlier read-only run [42057994689](https://github.com/BestNathan/nasset/actions/runs/42057994689)
+also revealed the inclusive source DVOL end boundary. Querying the final
+millisecond *before* the next UTC hour now validates the closed candle
+without accidentally including the first candle of the following hour;
+the later run measured both BTC/ETH DVOL parts successfully.
+
+These numbers are one representative live observation, not a measured
+yearly size distribution. They exclude full historical backfills, Git Blob
+headers, tree/commit objects, index storage, changing contract counts and
+any hypothetical PAXG option inventory. Never extrapolate them into a
+reliable storage-retention decision without repeated slot samples.
