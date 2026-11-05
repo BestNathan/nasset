@@ -284,6 +284,9 @@ def test_completed_slot_is_metadata_only_and_rejects_new_config():
     previous = {SLOT_RECEIPT[0]: git_blob_sha(SLOT_RECEIPT[1])}
     session = FakeSession(existing=True, paths=previous)
     archive = publisher(session)
+    with pytest.raises(PublishConflict, match="mandatory Parquet paths"):
+        archive.completed_slot(SLOT_RECEIPT)
+    session.paths.update({path: git_blob_sha(data) for path, data in PARTS.items()})
     assert archive.completed_slot(SLOT_RECEIPT) is True
     assert all(method == "GET" for method, _, _ in session.calls)
     with pytest.raises(PublishConflict, match="different due config"):
