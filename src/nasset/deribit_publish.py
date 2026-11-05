@@ -94,7 +94,61 @@ class GitHubArchivePublisher:
         if ref is None:
             return {}
         commit = self._api("GET", f"/git/commits/{ref['object']['sha']}")
-        return self._existing_paths(commit["tree"]["sha"], paths)
+        return self._existing_event_paths(commit["tree"]["sha"], paths)
+
+    def _existing_event_paths(self, root_tree: str,
+                              paths: tuple[str, ...]) -> dict[str, str]:
+        """Resolve native historical keys using *year-scoped* recursive trees.
+
+        Daily polls return years of native events; walking each event's day
+        separately would cost thousands of GitHub Tree requests. A single
+        bounded year subtree covers at most a year's events for one identity.
+        Never use recursive Git trees from repository root, where GitHub
+        truncates large archives. Reject any truncated scoped result.
+        """
+        direct_cache: dict[str, dict[str, dict]] = {}
+
+        def direct(sha: str) -> dict[str, dict]:
+            if sha not in direct_cache:
+                page = self._api("GET", f"/git/trees/{sha}")
+                if not isinstance(page, dict) or page.get("truncated"):
+                    raise RuntimeError("GitHub tree truncated while resolving year scope")
+                direct_cache[sha] = {
+                    entry["path"]: entry for entry in page["tree"]
+                }
+            return direct_cache[sha]
+
+        grouped: dict[tuple[str, ...], dict[str, str]] = {}
+        for path in paths:
+            segments = path.split("/")
+            # e.g. deribit/event_keys/delivery_price/btc_usd/2026
+            prefix = tuple(segments[:5])
+            grouped.setdefault(prefix, {})["/".join(segments[5:])] = path
+
+        found: dict[str, str] = {}
+        for prefix, requested in sorted(grouped.items()):
+            sha = root_tree
+            for segment in prefix:
+                child = direct(sha).get(segment)
+                if child is None:
+                    break
+                if child.get("type") != "tree":
+                    raise PublishConflict(
+                        f"non-directory in historical key prefix: {'/'.join(prefix)}"
+                    )
+                sha = child["sha"]
+            else:
+                annual = self._api("GET", f"/git/trees/{sha}?recursive=1")
+                if not isinstance(annual, dict) or annual.get("truncated"):
+                    raise RuntimeError("GitHub historical year tree truncated; refusing data loss")
+                for entry in annual["tree"]:
+                    relative = entry["path"]
+                    target = requested.get(relative)
+                    if target is not None:
+                        if entry.get("type") != "blob":
+                            raise PublishConflict(f"non-blob historical event key: {target}")
+                        found[target] = entry["sha"]
+        return found
 
     def completed_slot(self, receipt: tuple[str, bytes]) -> bool:
         """Check exact due-slot completion without fetching stored Parquet blobs.
