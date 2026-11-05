@@ -245,16 +245,19 @@ The probe uses actual public Deribit responses to check:
 - A complete hourly option/index/futures/DVOL batch rendered in-memory as
   independently readable PyArrow/ZSTD Parquet, with actual per-dataset row
   counts and byte totals printed as JSON.
-- BTC/ETH native historical-volatility observations and small, bounded
-  finalized-delivery samples for each discovered index. Settlement
-  `date` values are checked as native calendar dates, not epoch timestamps.
+- BTC/ETH native historical-volatility observations and **complete**
+  finalized-delivery pagination for each discovered index. The probe checks
+  page totals, duplicate native dates, malformed values and future dates;
+  it reports `validated_rows` per index and never publishes these events.
+  This adds read-only API requests proportional to historical delivery depth.
 
 A successful offline fixture suite is **not** live validation. A failed or
 unreachable exchange probe must be investigated and documented before merging
 or enabling any production `--publish`/hourly schedule. Even successful
 live output does not by itself prove real Git Data API append/race behavior,
-full historical-delivery pagination, or long-term object-store growth; those
-remain separate acceptance gates.
+long-term object-store growth; those remain separate acceptance gates. Full
+historical-delivery pagination is now checked by the probe but still needs a
+successful live run as evidence.
 
 
 #### Live contract finding and partial measurement policy (2026-11-05)
@@ -299,8 +302,8 @@ with PyArrow/ZSTD in memory and were **never published to Git**:
 The source reported 370 supported index identifiers. Sample-only finalized
 delivery counts: btc_usd 2,660; btc_usdc 1,702; eth_usd 2,500;
 eth_usdc 1,697; paxg_usdc 758. Historical-volatility response length
-was 383 observations each for BTC and ETH. Delivery was sampled at two
-records per index; **full pagination is not yet verified live**.
+was 383 observations each for BTC and ETH. That earlier run sampled two records per index; **full pagination has not yet
+been verified by a successful run of the updated probe**.
 
 The **blocking gap** is PAXG `option_chain` with zero listed option contracts
 at this point in time. The probe intentionally excluded only that unavailable
