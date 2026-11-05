@@ -261,3 +261,29 @@ def test_option_only_allows_absent_paxg_after_complete_catalog_check():
     assert batch.unlisted == (("option_chain", "PAXG"),)
     assert sum(p.endswith(".parquet") for p in batch.parts) == 2
     assert sum(p.endswith(".json") for p in batch.parts) == 1
+
+
+def test_option_and_index_without_futures_quotes_discovers_paxg_index_from_futures_metadata():
+    """An unlisted PAXG option must not erase its independently listed index."""
+    now = datetime.now(timezone.utc).replace(minute=59, second=0, microsecond=0)
+    calls = []
+
+    def observed(method, params):
+        calls.append((method, dict(params)))
+        return _without_paxg_options(method, params)
+
+    batch = prepare_live_batch(
+        _with_acknowledged_unlisted_paxg("option_chain", "index_price"),
+        DeribitClient(transport=observed), now,
+    )
+    assert batch.unlisted == (("option_chain", "PAXG"),)
+    assert len(batch.parts) == 4  # BTC/ETH options, all indices, coverage JSON
+    index_payload = next(payload for path, payload in batch.parts.items()
+                         if "/index_price/" in path)
+    index_names = set(pq.read_table(BytesIO(index_payload))
+                      .column("index_name").to_pylist())
+    assert "paxg_usdc" in index_names
+    assert not any(method == "get_book_summary_by_currency"
+                   and params.get("kind") == "future" for method, params in calls)
+    assert any(method == "get_instruments" and params.get("kind") == "future"
+               for method, params in calls)
