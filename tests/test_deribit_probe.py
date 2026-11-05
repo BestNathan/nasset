@@ -184,4 +184,4 @@ def test_explicit_unlisted_paxg_is_informational_and_live_probe_can_pass():
     ]
     assert result["compressed_parquet"]["option_chain"]["rows"] == 3
     assert result["measured_scope"]["option_chain"] == ["BTC", "ETH"]
-    assert result["measured_scope"]["futures_curve"] == ["BTC", "ETH", "PAXG"]
+    assert result["measured_scope"]["futures_curve"] == ["BTC", "PAXG"]
