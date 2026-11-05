@@ -53,6 +53,59 @@ def test_multi_settlement_and_index_variants():
     assert all(x["settlement_currency"] for x in snapshot.options)
 
 
+
+def test_independent_quote_scopes_preserve_paxg_future_and_index():
+    """An index/future PAXG asset never broadens the BTC/ETH option chain."""
+    calls = []
+
+    def no_paxg_option_quote(method, params):
+        calls.append((method, dict(params)))
+        rows = fixture_transport(method, params)
+        if method == "get_book_summary_by_currency" and params["kind"] == "option":
+            return [row for row in rows if row["instrument_name"] != "PAXG-OPT"]
+        return rows
+
+    snapshot = DeribitClient(transport=no_paxg_option_quote).snapshot(
+        ("BTC", "ETH", "PAXG"),
+        option_underlyings=("BTC", "ETH"),
+        futures_underlyings=("BTC", "ETH", "PAXG"),
+    )
+    assert {r["instrument_name"] for r in snapshot.options} == {
+        "BTC-OPT-A", "BTC-OPT-B", "ETH-OPT"
+    }
+    assert {r["instrument_name"] for r in snapshot.futures} == {
+        "BTC-FUT", "PAXG-FUT"
+    }
+    assert "paxg_usdc" in {r["index_name"] for r in snapshot.indices}
+    assert "PAXG-OPT" in {r["instrument_name"] for r in snapshot.instruments}
+    assert all(r["base_currency"] != "PAXG" for r in snapshot.options)
+    assert any(method == "get_book_summary_by_currency"
+               and params["kind"] == "future" and params["currency"] == "USDC"
+               for method, params in calls)
+
+
+def test_scoped_option_quotes_still_fail_closed_for_btc_missing_summary():
+    def incomplete(method, params):
+        rows = fixture_transport(method, params)
+        if method == "get_book_summary_by_currency" and params["kind"] == "option":
+            return [r for r in rows if r["instrument_name"] != "BTC-OPT-B"]
+        return rows
+
+    with pytest.raises(DeribitError, match="missing book summaries"):
+        DeribitClient(transport=incomplete).snapshot(
+            ("BTC", "ETH", "PAXG"),
+            option_underlyings=("BTC", "ETH"),
+            futures_underlyings=("BTC", "ETH", "PAXG"),
+        )
+
+
+def test_quote_scope_cannot_reference_unrequested_asset():
+    with pytest.raises(ValueError, match="quote scope"):
+        DeribitClient(transport=fixture_transport).snapshot(
+            ("BTC", "ETH"), option_underlyings=("BTC", "ETH", "PAXG"),
+        )
+
+
 def test_missing_summary_fails_whole_batch():
     def missing(method, params):
         if method == "get_book_summary_by_currency" and params["currency"] == "USDC":
