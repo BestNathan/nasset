@@ -1,15 +1,19 @@
 """Offline checks for dry-run-first Deribit collector and size metrics."""
 from datetime import datetime, timezone
 
+import pytest
+
 from nasset.deribit_client import DeribitClient
 from nasset.deribit_collect import collect_once, CAPACITY_REVIEW_KIB
-from nasset.deribit_publish import PublishResult, git_blob_sha
+from nasset.deribit_publish import PublishResult, PublishConflict, git_blob_sha
+from nasset.deribit_slot import slot_receipt
 from test_deribit_history import config, transport
 
 
 class Publisher:
-    def __init__(self, *, stored=None, size=1234, fail_capacity=False):
+    def __init__(self, *, stored=None, size=1234, fail_capacity=False, receipts=None):
         self.stored = stored or {}
+        self.receipts = receipts or {}
         self.calls = []
         self.size = size
         self.fail_capacity = fail_capacity
@@ -17,8 +21,18 @@ class Publisher:
     def existing(self, paths):
         return {p: self.stored[p] for p in paths if p in self.stored}
 
-    def publish(self, parts, *, branch):
+    def completed_slot(self, receipt):
+        path, payload = receipt
+        previous = self.receipts.get(path)
+        if previous and previous != git_blob_sha(payload):
+            raise PublishConflict("slot config changed")
+        return previous is not None
+
+    def publish(self, parts, *, branch, slot_receipt=None):
         self.calls.append((dict(parts), branch))
+        if slot_receipt:
+            path, payload = slot_receipt
+            self.receipts[path] = git_blob_sha(payload)
         return PublishResult("test-commit", True, tuple(sorted(parts)))
 
     def repository_size_kib(self):
@@ -84,3 +98,40 @@ def test_committed_batch_survives_unavailable_capacity_metric():
     assert result["status"] == "created"
     assert result["commit_sha"] == "test-commit"
     assert "repository_size_warning" in result
+
+
+
+def test_hourly_rerun_uses_receipt_without_any_new_rest_or_git_write():
+    pub = Publisher()
+    config_daily = config("historical_volatility", "delivery_price")
+    first = collect_once(config_daily, DeribitClient(transport=transport),
+                         pub, NOW, publish=True)
+    assert first["status"] == "created"
+    observed = []
+
+    def forbidden_source(method, params):
+        observed.append(method)
+        raise AssertionError("no REST requests allowed for completed slot")
+
+    repeated = collect_once(
+        config_daily, DeribitClient(transport=forbidden_source),
+        pub, NOW.replace(minute=55), publish=True,
+    )
+    assert repeated["status"] == "already_published"
+    assert len(pub.calls) == 1
+    assert observed == []
+
+
+def test_slot_receipt_rejects_changed_due_configuration_in_same_hour():
+    pub = Publisher()
+    collect_once(config("historical_volatility"), DeribitClient(transport=transport),
+                 pub, NOW, publish=True)
+    with pytest.raises(PublishConflict, match="config changed"):
+        collect_once(config("delivery_price"), DeribitClient(transport=transport),
+                     pub, NOW, publish=True)
+
+
+def test_slot_receipt_stable_across_minute_and_dataset_order():
+    same = config("historical_volatility", "delivery_price")
+    other = config("delivery_price", "historical_volatility")
+    assert slot_receipt(same, NOW) == slot_receipt(other, NOW.replace(minute=59))
