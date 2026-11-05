@@ -28,7 +28,7 @@ class PublishResult:
 
 
 def git_blob_sha(data: bytes) -> str:
-    header = f"blob {len(data)}\\0".encode()
+    header = f"blob {len(data)}".encode() + bytes([0])
     return hashlib.sha1(header + data).hexdigest()
 
 
