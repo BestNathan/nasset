@@ -166,7 +166,8 @@ def test_hourly_paxg_unlisted_coverage_is_reported_and_published_once():
     )
     assert result["status"] == "created"
     assert result["unlisted"] == [
-        {"dataset": "option_chain", "underlying": "PAXG", "listed_count": 0}
+        {"dataset": "futures_curve", "underlying": "ETH", "listed_count": 0},
+        {"dataset": "option_chain", "underlying": "PAXG", "listed_count": 0},
     ]
     assert len(result["coverage_manifests"]) == 1
     parts, branch = pub.calls[0]
