@@ -16,7 +16,7 @@ def config(*names):
         name: {"enabled": True, "interval_hours": 1,
                **({"index_names": "auto"} if name == "index_price" else {}),
                **({"resolution": "3600", "underlyings": ["BTC", "ETH"]}
-                  if name == "volatility_index" else {})}
+                  if name in {"volatility_index", "historical_volatility"} else {})}
         for name in names
     }
     return parse_config({
