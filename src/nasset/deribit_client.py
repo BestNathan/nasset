@@ -220,7 +220,8 @@ class DeribitClient:
 
     def snapshot(self, underlyings: tuple[str, ...], *,
                  include_options: bool = True, include_futures: bool = True,
-                 include_indices: bool = True) -> MarketSnapshot:
+                 include_indices: bool = True,
+                 allow_unlisted: tuple[str, ...] = ()) -> MarketSnapshot:
         """Collect all relevant settlement partitions, joining exact instrument IDs.
 
         If any expected instrument is absent from the summary, abort the entire
@@ -234,11 +235,18 @@ class DeribitClient:
         # price_index identifiers, but must not fetch any book summaries.
         catalog = self.instruments(kinds=kinds or ("option", "future"))
         scope = set(underlyings)
+        allow = set(allow_unlisted)
+        if not allow.issubset(scope):
+            raise ValueError("allow_unlisted must be within requested underlying scope")
         selected = {i["instrument_name"]: i for i in catalog
                     if i.get("base_currency") in scope and (not kinds or i.get("kind") in kinds)}
         for asset in underlyings:
             if not any(i.get("base_currency") == asset for i in selected.values()):
-                raise DeribitError(f"no listed contracts for configured underlying {asset}")
+                # This is allowed only for an explicitly acknowledged listed-
+                # contract absence, verified against the full source catalog.
+                # Missing quotes for *listed* contracts remain fatal below.
+                if asset not in allow:
+                    raise DeribitError(f"no listed contracts for configured underlying {asset}")
         quotes: dict[str, dict[str, Any]] = {}
         for kind in kinds:
             settlement_set = {i.get("settlement_currency") for i in selected.values()
