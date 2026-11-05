@@ -227,3 +227,79 @@ def test_historical_volatility_does_not_query_unsupported_paxg():
 def test_historical_volatility_empty_series_is_not_a_synthetic_zero():
     client = DeribitClient(transport=lambda method, params: [])
     assert client.historical_volatility("ETH") == ()
+
+
+def test_delivery_prices_paginates_and_preserves_native_event_identity():
+    calls = []
+    events = [
+        {"date": 1700000000000, "delivery_price": 41000.5},
+        {"date": 1700086400000, "delivery_price": 42000.25},
+        {"date": 1700172800000, "delivery_price": 43000.0},
+    ]
+
+    def transport(method, params):
+        assert method == "get_delivery_prices"
+        assert params["index_name"] == "btc_usdc"
+        calls.append(params["offset"])
+        offset, count = params["offset"], params["count"]
+        return {"data": events[offset:offset + count], "records_total": len(events)}
+
+    rows = DeribitClient(transport=transport).delivery_prices("btc_usdc", page_size=2)
+    assert calls == [0, 2]
+    assert [(row["event_timestamp"], row["delivery_price"]) for row in rows] == [
+        (item["date"], item["delivery_price"]) for item in events
+    ]
+    assert all(row["index_name"] == "btc_usdc" for row in rows)
+
+
+def test_delivery_prices_empty_series_is_healthy():
+    client = DeribitClient(transport=lambda method, params:
+                           {"data": [], "records_total": 0})
+    assert client.delivery_prices("paxg_usdc") == ()
+
+
+@pytest.mark.parametrize("payload, reason", [
+    ({"data": [], "records_total": 1}, "incomplete page"),
+    ({"data": [{"date": 1000, "delivery_price": float("nan")}],
+      "records_total": 1}, "invalid event"),
+    ({"data": [{"date": True, "delivery_price": 2}],
+      "records_total": 1}, "invalid event"),
+    ({"data": [{"date": 1000, "delivery_price": None}],
+      "records_total": 1}, "invalid event"),
+    ({"data": [{"date": 1000, "delivery_price": -2}],
+      "records_total": 1}, "invalid event"),
+    ({"data": [], "records_total": "0"}, "malformed pagination"),
+    ({"data": [{"date": 1000, "delivery_price": 2},
+               {"date": 1000, "delivery_price": 3}],
+      "records_total": 2}, "conflicting event"),
+])
+def test_delivery_prices_rejects_bad_source_pages(payload, reason):
+    client = DeribitClient(transport=lambda method, params: payload)
+    with pytest.raises(DeribitError, match=reason):
+        client.delivery_prices("btc_usd")
+
+
+def test_delivery_prices_rejects_moving_pagination_and_truncation():
+    def moving(method, params):
+        if params["offset"] == 0:
+            return {"data": [{"date": 1000, "delivery_price": 2}],
+                    "records_total": 2}
+        return {"data": [{"date": 2000, "delivery_price": 3}],
+                "records_total": 3}
+    with pytest.raises(DeribitError, match="pagination changed"):
+        DeribitClient(transport=moving).delivery_prices("btc_usd", page_size=1)
+
+    def many(method, params):
+        return {"data": [{"date": params["offset"] + 1000,
+                          "delivery_price": 2}], "records_total": 3}
+    with pytest.raises(DeribitError, match="pagination limit"):
+        DeribitClient(transport=many).delivery_prices(
+            "btc_usd", page_size=1, max_pages=2)
+
+
+def test_delivery_prices_invalid_index_never_calls_source():
+    calls = []
+    client = DeribitClient(transport=lambda method, params: calls.append(method))
+    with pytest.raises(ValueError, match="index_name"):
+        client.delivery_prices("BTC/USD")
+    assert calls == []
