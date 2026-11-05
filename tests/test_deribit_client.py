@@ -163,3 +163,26 @@ def test_http_exchange_error_rejected():
 
     with pytest.raises(DeribitError, match="exchange error"):
         DeribitClient(session=Session()).call("get_index_price", index_name="invalid")
+
+
+@pytest.mark.parametrize("payload,reason", [
+    ({"data": [[3600000, 10, 12, 9, 11]], "continuation": 123}, "truncated"),
+    ({"data": [[3600000, 10, 12, 9]]}, "invalid OHLC"),
+    ({"data": [[3600000, 10, 12, 9, 11], [3600000, 10, 12, 9, 11]]}, "duplicate"),
+    ({"data": [[7200000, 10, 12, 9, 11]]}, "out-of-window"),
+    ({"data": []}, "no candles"),
+    ({"unexpected": []}, "malformed"),
+])
+def test_dvol_rejects_invalid_or_incomplete_candles(payload, reason):
+    client = DeribitClient(transport=lambda method, params: payload)
+    with pytest.raises(DeribitError, match=reason):
+        client.volatility_candles("BTC", start_ms=3600000, end_ms=7200000)
+
+
+def test_dvol_normalizes_and_sorts_native_ohlc():
+    data = {"data": [[5400000, 10, 13, 9, 12], [3600000, 8, 10, 7, 9]]}
+    client = DeribitClient(transport=lambda method, params: data)
+    candles = client.volatility_candles("ETH", start_ms=3600000, end_ms=7200000)
+    assert [x["event_timestamp"] for x in candles] == [3600000, 5400000]
+    assert candles[1]["close"] == 12
+    assert all(x["base_currency"] == "ETH" for x in candles)
