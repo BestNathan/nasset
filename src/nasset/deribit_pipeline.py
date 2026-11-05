@@ -60,8 +60,8 @@ def prepare_live_batch(config: ArchiveConfig, client: DeribitClient, now: dateti
         captured = snapshot.captured_at
         if captured.tzinfo is None:
             raise DeribitError("client returned naive captured_at")
-        if captured.astimezone(timezone.utc) > instant:
-            raise DeribitError("snapshot capture time is later than requested time")
+        # `now` is the scheduler invocation time, not an upper bound on API
+        # completion. A successful request normally finishes after `now`.
         if captured.astimezone(timezone.utc).replace(minute=0, second=0, microsecond=0) != slot:
             raise DeribitError("snapshot capture hour differs from requested UTC slot")
 
