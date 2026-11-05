@@ -59,6 +59,54 @@ def test_live_batch_projects_exchange_fields_and_partitions_assets():
     }
 
 
+
+def test_live_config_excludes_paxg_options_even_if_exchange_relists_them():
+    """Production scope must not fail on ignored PAXG quote or write PAXG options."""
+    from pathlib import Path
+    from nasset.deribit_archive import load_config
+
+    source = load_config(Path(__file__).resolve().parents[1] /
+                         "config" / "market-data.yml")
+    # Exercise the hourly scope regardless of which UTC hour CI runs in.
+    cfg = ArchiveConfig(source.branch, source.compression_level, tuple(
+        ds for ds in source.datasets if ds.interval_hours == 1
+    ))
+    now = datetime.now(timezone.utc).replace(minute=59, second=0, microsecond=0)
+    slot = now.replace(minute=0)
+
+    def source_with_unquoted_paxg_option(method, params):
+        rows = fixture_transport(method, params) if method != "get_volatility_index_data" else {
+            "data": [[params["start_timestamp"], 50., 52., 48., 51.]],
+            "continuation": None,
+        }
+        if method == "get_book_summary_by_currency" and params["kind"] == "option":
+            return [row for row in rows if row["instrument_name"] != "PAXG-OPT"]
+        return rows
+
+    batch = prepare_live_batch(
+        cfg, DeribitClient(transport=source_with_unquoted_paxg_option), now,
+    )
+    assert batch.slot == slot
+    assert batch.unlisted == (("futures_curve", "ETH"),)
+    assert not any("/option_chain/PAXG/" in path for path in batch.parts)
+    assert sum("/option_chain/" in path for path in batch.parts) == 2
+    assert any("/futures_curve/PAXG/" in path for path in batch.parts)
+    index_part = next(payload for path, payload in batch.parts.items()
+                      if "/index_price/" in path)
+    assert "paxg_usdc" in set(pq.read_table(BytesIO(index_part))
+                             .column("index_name").to_pylist())
+    coverage = [json.loads(payload) for path, payload in batch.parts.items()
+                if "/coverage/" in path]
+    assert coverage == [{
+        "schema_version": 1, "provider": "deribit",
+        "snapshot_slot_at": slot.isoformat(),
+        "observed_at": coverage[0]["observed_at"],
+        "unlisted": [{"dataset": "futures_curve", "underlying": "ETH",
+                      "listed_count": 0}],
+    }]
+
+
+
 def test_history_without_event_ledger_prevents_all_rest_calls():
     calls = []
     def transport(method, params):
