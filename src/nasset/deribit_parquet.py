@@ -48,7 +48,7 @@ SCHEMAS = {
     ],
     "delivery_price": [
         ("index_name", pa.string()), ("base_currency", pa.string()),
-        ("quote_currency", pa.string()), ("event_timestamp", pa.int64()),
+        ("quote_currency", pa.string()), ("event_date", pa.string()),
         ("delivery_price", pa.float64()),
     ],
     "volatility_index": [
@@ -116,7 +116,9 @@ def encode_part(
             raise ValueError("instrument_name required")
         if dataset in {"index_price", "delivery_price"} and not row.get("index_name"):
             raise ValueError("index_name required")
-        if dataset in {"delivery_price", "volatility_index", "historical_volatility"} and row.get("event_timestamp") is None:
+        if dataset == "delivery_price" and not row.get("event_date"):
+            raise ValueError("native delivery event_date required")
+        if dataset in {"volatility_index", "historical_volatility"} and row.get("event_timestamp") is None:
             raise ValueError("native event_timestamp required")
         normalized.append({
             **row, "provider": "deribit", "dataset": dataset,
