@@ -1,0 +1,35 @@
+name: Deribit public API contract (read only)
+
+on:
+  pull_request:
+    paths:
+      - "src/nasset/deribit_*.py"
+      - "tests/test_deribit_*.py"
+      - "config/market-data.yml"
+      - ".github/workflows/deribit-contract.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deribit-contract-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  live-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install read-only probe dependencies
+        run: pip install -e ".[archive]"
+      - name: Verify actual Deribit source coverage and measure Parquet sizes
+        run: python -m nasset.deribit_probe --config config/market-data.yml
