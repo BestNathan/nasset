@@ -151,3 +151,28 @@ def test_duplicate_utc_slot_skips_all_source_calls():
     assert result["status"] == "already_published"
     assert len(pub.receipts) == 1
     assert not pub.calls and not calls
+
+
+def test_hourly_paxg_unlisted_coverage_is_reported_and_published_once():
+    from test_deribit_pipeline import (
+        _with_acknowledged_unlisted_paxg, _without_paxg_options,
+    )
+
+    pub = Publisher()
+    result = collect_once(
+        _with_acknowledged_unlisted_paxg("option_chain", "futures_curve", "index_price"),
+        DeribitClient(transport=_without_paxg_options),
+        pub, NOW, publish=True,
+    )
+    assert result["status"] == "created"
+    assert result["unlisted"] == [
+        {"dataset": "option_chain", "underlying": "PAXG", "listed_count": 0}
+    ]
+    assert len(result["coverage_manifests"]) == 1
+    parts, branch = pub.calls[0]
+    assert branch == "market-data"
+    assert len(pub.calls) == 1
+    assert result["coverage_manifests"][0] in parts
+    assert not any("/option_chain/PAXG/" in path for path in parts)
+    assert any("/futures_curve/PAXG/" in path for path in parts)
+    assert result["parquet_bytes"] > 0
