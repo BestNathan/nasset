@@ -221,3 +221,37 @@ monitoring.
 
 The orphan archive and scheduled production collector remain disabled until
 real Deribit API/PAXG contracts and measured live Parquet sizes are verified.
+
+
+### Read-only public API contract verification (pre-production gate)
+
+`src/nasset/deribit_probe.py` is an **independent source probe**; it has no
+GitHub archive publisher, GitHub token, mutation code or scheduled collector.
+Run locally with `python -m nasset.deribit_probe --config config/market-data.yml`
+or inspect the `live-contract` job in
+`.github/workflows/deribit-contract.yml`. That workflow has only
+`pull_request` (Deribit-scoped paths) and `workflow_dispatch` triggers,
+`contents: read` permissions, and a shallow one-commit checkout. It does not
+alter the existing Pages/daily workflows.
+
+The probe uses actual public Deribit responses to check:
+
+- BTC/ETH/PAXG derivative catalog by `base_currency` and `kind`, separately
+  tracking listed/active option/future counts and settlement-currency partitions;
+  PAXG options missing from the actual source is a **blocking capability
+  finding**, not a reason to fabricate a contract or quote.
+- Exact referenced `price_index` names cross-checked against the source
+  `get_index_price_names` catalog; never invent an `_usd` or `_usdc` fallback.
+- A complete hourly option/index/futures/DVOL batch rendered in-memory as
+  independently readable PyArrow/ZSTD Parquet, with actual per-dataset row
+  counts and byte totals printed as JSON.
+- BTC/ETH native historical-volatility observations and small, bounded
+  finalized-delivery samples for each discovered index. Settlement
+  `date` values are checked as native calendar dates, not epoch timestamps.
+
+A successful offline fixture suite is **not** live validation. A failed or
+unreachable exchange probe must be investigated and documented before merging
+or enabling any production `--publish`/hourly schedule. Even successful
+live output does not by itself prove real Git Data API append/race behavior,
+full historical-delivery pagination, or long-term object-store growth; those
+remain separate acceptance gates.
