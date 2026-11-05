@@ -44,7 +44,7 @@ class FakeSession:
             tree_sha = path.split("/")[-1]
             # Simulate non-recursive Git tree API: each response contains only
             # direct children. Synthetic SHA is the directory prefix.
-            prefix = "" if tree_sha == "tree0" else tree_sha.removeprefix("dir:")
+            prefix = "" if tree_sha == "tree0" else tree_sha.removeprefix("dir:").replace("|", "/")
             children = {}
             for full_path, sha in self.paths.items():
                 if not full_path.startswith(prefix):
@@ -53,7 +53,7 @@ class FakeSession:
                 first, sep, _ = remaining.partition("/")
                 if sep:
                     children[first] = {"path": first, "type": "tree",
-                                       "sha": "dir:" + prefix + first + "/"}
+                                       "sha": "dir:" + (prefix + first + "/").replace("/", "|")}
                 else:
                     children[first] = {"path": first, "type": "blob", "sha": sha}
             return Response(data={"truncated": self.truncated, "tree": list(children.values())})
