@@ -33,3 +33,12 @@ jobs:
         run: pip install -e ".[archive]"
       - name: Verify actual Deribit source coverage and measure Parquet sizes
         run: python -m nasset.deribit_probe --config config/market-data.yml
+
+      - name: Assemble complete due batch in safe read-only dry run
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          # Explicitly omit --publish: this reads only public Deribit data and
+          # Git tree metadata; no commits, refs, or archive blobs are written.
+          python -m nasset.deribit_collect --config config/market-data.yml
