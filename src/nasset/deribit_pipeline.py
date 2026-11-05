@@ -78,6 +78,10 @@ def prepare_live_batch(
             include_futures="futures_curve" in by_name,
             include_indices="index_price" in by_name,
             allow_unlisted=allowed_unlisted,
+            option_underlyings=(by_name["option_chain"].underlyings
+                                if "option_chain" in by_name else ()),
+            futures_underlyings=(by_name["futures_curve"].underlyings
+                                 if "futures_curve" in by_name else ()),
         )
         captured = snapshot.captured_at
         if captured.tzinfo is None:
