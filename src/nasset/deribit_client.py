@@ -97,11 +97,11 @@ class DeribitClient:
                 raise DeribitError(f"no listed contracts for configured underlying {asset}")
         quotes: dict[str, dict[str, Any]] = {}
         for kind in kinds:
-            settlements = sorted({i.get("settlement_currency") for i in selected.values()
-                                  if i.get("kind") == kind})
-            if None in settlements or not settlements:
+            settlement_set = {i.get("settlement_currency") for i in selected.values()
+                              if i.get("kind") == kind}
+            if None in settlement_set or not settlement_set:
                 raise DeribitError(f"{kind}: missing settlement currencies")
-            for currency in settlements:
+            for currency in sorted(settlement_set):
                 result = self.call("get_book_summary_by_currency", currency=currency, kind=kind)
                 if not isinstance(result, list):
                     raise DeribitError(f"get_book_summary_by_currency({currency}, {kind}): expected list")
@@ -129,9 +129,8 @@ class DeribitClient:
         indices: list[dict[str, Any]] = []
         if include_indices:
             names = {i.get("price_index") for i in selected.values() if i.get("price_index")}
-            # Some instrument metadata uses underlying_index instead of price_index.
-            names |= {i.get("underlying_index") for i in selected.values()
-                      if i.get("underlying_index") and not str(i["underlying_index"]).endswith("-PERPETUAL")}
+            # underlying_index can refer to a *future*, not a price index;
+            # never blindly pass it to get_index_price.
             if not names:
                 raise DeribitError("no index names discovered from instrument metadata")
             for name in sorted(names):
