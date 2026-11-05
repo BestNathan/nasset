@@ -26,7 +26,7 @@ jobs:
         with:
           node-version: "22"
       - name: Dependencies
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev,archive]"
       - name: Python tests
         run: pytest -q
       - name: Static JS syntax
