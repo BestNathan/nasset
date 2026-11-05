@@ -70,6 +70,7 @@ def prepare_live_batch(
                 ds.underlyings if ds.name == "futures_curve"
                 else ds.options.get("allow_unlisted", [])
             )
+            if asset in assets
         }))
         snapshot = client.snapshot(
             assets,
