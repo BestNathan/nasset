@@ -72,8 +72,12 @@ class DeribitClient:
         """
         if not currency or start_ms >= end_ms or resolution != "3600":
             raise ValueError("invalid DVOL request interval/resolution")
+        # Deribit source range bounds are inclusive. Our archive contract
+        # is the half-open last-closed-hour interval [start_ms, end_ms).
+        # Request one millisecond before the next hour so an opening candle
+        # for the *current* incomplete hour cannot enter the snapshot.
         result = self.call("get_volatility_index_data", currency=currency,
-                           start_timestamp=start_ms, end_timestamp=end_ms,
+                           start_timestamp=start_ms, end_timestamp=end_ms - 1,
                            resolution=resolution)
         if not isinstance(result, dict) or not isinstance(result.get("data"), list):
             raise DeribitError(f"DVOL {currency}: malformed result")
@@ -92,8 +96,13 @@ class DeribitClient:
                     or low > high or not low <= opening <= high
                     or not low <= closing <= high):
                 raise DeribitError(f"DVOL {currency}: invalid OHLC values")
-            if not start_ms <= timestamp < end_ms or timestamp in seen:
-                raise DeribitError(f"DVOL {currency}: out-of-window/duplicate candle")
+            if not start_ms <= timestamp < end_ms:
+                raise DeribitError(
+                    f"DVOL {currency}: candle {timestamp} outside closed interval "
+                    f"[{start_ms}, {end_ms})"
+                )
+            if timestamp in seen:
+                raise DeribitError(f"DVOL {currency}: duplicate candle {timestamp}")
             seen.add(timestamp)
             rows.append(dict(base_currency=currency, event_timestamp=timestamp,
                              open=candle[1], high=candle[2], low=candle[3],
