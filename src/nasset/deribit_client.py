@@ -6,7 +6,7 @@ a settlement currency for derivatives, NOT the configured base/underlying.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Callable, Mapping
 import time
 import math
@@ -133,7 +133,8 @@ class DeribitClient:
                         max_pages: int = 100) -> tuple[dict[str, Any], ...]:
         """Read all native finalized delivery events for one exact index name.
 
-        Deribit's offset/count pagination returns data and records_total.
+        Deribit's offset/count pagination returns data and records_total. Native
+        `date` is a YYYY-MM-DD calendar date, NOT an epoch timestamp.
         Never confuse this finalized settlement series with the estimated
         delivery price in get_index_price. A genuinely empty series is valid.
         """
@@ -145,7 +146,7 @@ class DeribitClient:
             raise ValueError("invalid delivery page_size")
         if type(max_pages) is not int or max_pages < 1:
             raise ValueError("invalid delivery max_pages")
-        events: dict[int, float] = {}
+        events: dict[str, float] = {}
         total: int | None = None
         offset = 0
         for _ in range(max_pages):
@@ -165,18 +166,28 @@ class DeribitClient:
             if offset < total and not data:
                 raise DeribitError(f"delivery {index_name}: incomplete page")
             for item in data:
-                if (not isinstance(item, dict) or type(item.get("date")) is not int
-                        or item["date"] <= 0 or type(item.get("delivery_price")) not in (int, float)
+                # The native Deribit "date" is a YYYY-MM-DD calendar date,
+                # not a millisecond epoch. Never manufacture an intraday
+                # settlement timestamp or lose the source's date-only precision.
+                if (not isinstance(item, dict) or type(item.get("date")) is not str
+                        or type(item.get("delivery_price")) not in (int, float)
                         or not math.isfinite(item["delivery_price"])
                         or item["delivery_price"] < 0):
                     raise DeribitError(f"delivery {index_name}: invalid event")
-                stamp, price = item["date"], item["delivery_price"]
+                try:
+                    stamp = date.fromisoformat(item["date"])
+                except ValueError as exc:
+                    raise DeribitError(f"delivery {index_name}: invalid date") from exc
+                if stamp.isoformat() != item["date"]:
+                    raise DeribitError(f"delivery {index_name}: invalid native date format")
+                price = item["delivery_price"]
+                stamp = item["date"]
                 if stamp in events and events[stamp] != price:
                     raise DeribitError(f"delivery {index_name}: conflicting event")
                 events[stamp] = price
             offset += len(data)
             if offset == total:
-                return tuple(dict(index_name=index_name, event_timestamp=stamp,
+                return tuple(dict(index_name=index_name, event_date=stamp,
                                   delivery_price=price)
                              for stamp, price in sorted(events.items()))
         raise DeribitError(f"delivery {index_name}: pagination limit exceeded")
