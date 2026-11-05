@@ -17,6 +17,8 @@ class Publisher:
         self.calls = []
         self.size = size
         self.fail_capacity = fail_capacity
+        self.receipts = []
+        self.complete = False
 
     def existing(self, paths):
         return {p: self.stored[p] for p in paths if p in self.stored}
@@ -30,6 +32,7 @@ class Publisher:
 
     def publish(self, parts, *, branch, slot_receipt=None):
         self.calls.append((dict(parts), branch))
+        assert slot_receipt is not None
         if slot_receipt:
             path, payload = slot_receipt
             self.receipts[path] = git_blob_sha(payload)
@@ -135,3 +138,17 @@ def test_slot_receipt_stable_across_minute_and_dataset_order():
     same = config("historical_volatility", "delivery_price")
     other = config("delivery_price", "historical_volatility")
     assert slot_receipt(same, NOW) == slot_receipt(other, NOW.replace(minute=59))
+
+
+def test_duplicate_utc_slot_skips_all_source_calls():
+    pub = Publisher()
+    pub.complete = True
+    calls = []
+    def forbidden(method, params):
+        calls.append(method)
+        raise AssertionError("already published slot must not query Deribit")
+    result = collect_once(config("historical_volatility", "delivery_price"),
+                          DeribitClient(transport=forbidden), pub, NOW, publish=True)
+    assert result["status"] == "already_published"
+    assert len(pub.receipts) == 1
+    assert not pub.calls and not calls
