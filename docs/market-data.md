@@ -1,97 +1,98 @@
-# Git-backed market-data archive (design v1)
+# nasset market-data archive: Parquet + Git (design v1)
 
-Status: **agreed design, collector not yet deployed**. Implementation and acceptance: [issue #6](https://github.com/BestNathan/nasset/issues/6).
+Status: **design only, collection not yet enabled**. Implementation: [issue #6](https://github.com/BestNathan/nasset/issues/6). Config: [`config/market-data.yml`](../config/market-data.yml).
 
-## Goals and boundaries
+## Architecture and scope
 
-- Keep application code, tests, configuration and scheduled collector workflows on `main`.
-- Keep immutable exchange market snapshots on a **separate-root `market-data` orphan branch** in this same repository.
-- Do not put raw Parquet snapshots under `main` or in the Pages deployment artifact.
-- Use Apache Parquet with **internal ZSTD** compression (initial level 6). The filename is `.parquet`, not `.parquet.zst`.
-- Collection scope is defined in [`config/market-data.yml`](../config/market-data.yml), starting with BTC/ETH Deribit option chains. PAXG or SOL can be enabled by adding symbols to `underlyings`, without changing code.
-- Underlyings, data sources and datasets are **logical classification dimensions**, independent of an investment theme (e.g. gold or crypto).
+- Code, workflow and configuration remain on `main`; archived immutable Parquet objects live on a true `market-data` **orphan branch** (no shared root history), in the same GitHub repository.
+- Parquet uses native ZSTD compression level 6. Schema is explicit and versioned. Do **not** create a global numeric instrument-ID dictionary: store the original names, and use Parquet dictionary encoding as appropriate.
+- Deribit collection is now a **multi-dataset provider** rather than an option-chain-only job. Each dataset has its own source API, typed schema, frequency, validation rules and partitioning.
+- Common `sources.deribit.underlyings: [BTC, ETH]` selects underlying/base assets. Adding `PAXG` expands compatible enabled datasets without a code change.
+- Optional dataset-level `underlyings` overrides the common asset list where availability is genuinely narrower (DVOL/HV, for example). Never assume every provider dataset exists for every asset.
+- Collect raw reference series with native units/timestamps; do not mix them into an investment-theme hierarchy.
 
-## Frequency, scheduling, and commit policy
+## Datasets and priorities
 
-- `sources.deribit.datasets.option_chain.interval_hours` is configurable. V1 supports positive divisors of 24: `1, 2, 3, 4, 6, 8, 12, 24`. The default is **4 hours**. Changing frequency does not require source code changes. Different datasets may use different intervals.
-- GitHub Actions does not evaluate arbitrary YAML configuration as a cron expression. Use a fixed off-hour hourly scheduler (`37 * * * *`) and a **cheap due-gate** that reads this config and only starts collection for eligible UTC hours. An interval of 4 means UTC hours 00, 04, 08, 12, 16, 20. Subhour frequency would require a separate scheduler-design change, not silently run at the wrong interval.
-- The gate, not the collector, should decide when each dataset is due, before installing PyArrow or fetching data. `workflow_dispatch` is available for manual recovery. Record actual API capture timestamps and reject false/backdated historical quotes.
-- **Data is grouped by UTC day as a directory, not by continually rewriting one physical Parquet file.** Each run writes one immutable Parquet part per enabled underlying and UTC time slot, followed by **one commit for all symbols**. Commit count is therefore governed by capture frequency, not the number of assets.
-- At four-hour sampling this is six commits per day (2,190 annually), which is not a practical commit explosion. A daily rolling Parquet rewrite would create six versions of a compressed blob, inflating Git object storage and increasing upload work. PyArrow cannot reopen a closed Parquet file to append row groups without rewriting it.
-- **Do not automatically squash, amend or force-push** the published `market-data` history. Squashing does not guarantee old GitHub objects will be immediately reclaimed; it also breaks stable commit SHA references and complicates concurrent scheduled runs. A future one-commit-per-day policy requires a separately designed reliable *temporary* accumulation layer, then a single daily immutable publish. Do not add that complexity in v1.
+| Dataset | Initial enabled | API | Update semantics / research use |
+|---|---|---|---|
+| `option_chain` | yes, 4h | `public/get_instruments` + `public/get_book_summary_by_currency` | One current option quote per instrument; options prices, IV, OI, expiries, put/call surfaces |
+| `index_price` | yes, 4h | `public/get_supported_index_names` or `get_index_price_names`, then `public/get_index_price` | Index observation + estimated delivery reference, time-aligned to chain |
+| `delivery_price` | yes, daily poll | `public/get_delivery_prices` | Immutable actual delivery/settlement *events*, not latest-price snapshots; vital to realized expiry P&L |
+| `volatility_index` | no, optional | `public/get_volatility_index_data` | Native timestamped DVOL candles; discover availability; BTC/ETH initial allowlist |
+| `historical_volatility` | no, optional | `public/get_historical_volatility` | Realized-volatility observations with native time axis; compare IV/RV |
+| `futures_curve` | no, optional | `public/get_book_summary_by_currency` (`kind=future`) | Native futures / perpetual prices and basis, optionally option forward context |
+| `funding_rate` | no, optional | `public/get_funding_rate_history` | Native hourly funding data for actual perpetual instruments (do not query for spot/options) |
 
-## Classification and file paths
+Later high-cardinality sources (individual Greeks tickers, order books, full trades) are separate follow-up work. Do not initiate thousands of per-instrument requests within the bulk-chain collector. Historical index candles are optionally accessible via `public/get_index_chart_data`; don't conflate API-native time series with live observations.
 
-Use:
+References:
+- [Deribit get_index_price](https://skmtc.dev/deribit/apis/deribit-api/docs/public/get_index_price/get)
+- [Deribit get_supported_index_names](https://skmtc.dev/deribit/apis/deribit-api/docs/public/get_supported_index_names/get)
+- [Deribit get_delivery_prices](https://skmtc.dev/deribit/apis/deribit-api/docs/public/get_delivery_prices/get)
+- [Deribit get_volatility_index_data](https://skmtc.dev/deribit/apis/deribit-api/docs/public/get_volatility_index_data/get)
+- [Deribit get_historical_volatility](https://skmtc.dev/deribit/apis/deribit-api/docs/public/get_historical_volatility/get)
+- [Deribit get_funding_rate_history](https://skmtc.dev/deribit/apis/deribit-api/docs/public/get_funding_rate_history/get)
+
+## Critical Deribit identity semantics
+
+**Underlying asset is not settlement currency, and an index is identified by its full `index_name`**.
+
+- For options, `public/get_instruments?currency=any&kind=option&expired=false`, filtered by `base_currency`, provides the authoritative instrument set. Query book summaries for *all relevant settlement currencies*, join on exact `instrument_name`, de-duplicate and require successful coverage.
+- For indexes, discover supported names through the API and match relevant `price_index` identifiers from discovered instruments. Track **all** applicable quote-currency variants (e.g. `btc_usd` *and* `btc_usdc`, `paxg_usdc` and `paxg_btc` if actually referenced); never hardcode `BTC -> btc_usd` or generate unsupported names.
+- `index_price.index_names: auto` derives the actual names from live instrument metadata and supported-name discovery. Document an explicit list override if market listings need index coverage independent of option listings.
+- For `delivery_price`, obtain records by full index name and preserve the **settlement event date/time**, not merely the collection time; deduplicate overlapping paginated lookbacks by an event key including index name and native event timestamp/date.
+- Fail visibly on unrecognized configured symbols, incompatible dataset capability or missing required data; an API success with an empty response is not automatically a healthy snapshot. A legitimate no-new-delivery-events result, however, is not a failure.
+
+## Time and price semantics
+
+- `captured_at` is the **actual API request/response observation time**. `snapshot_slot_at` is the UTC scheduled bucket, not an assertion that the value existed at the exact beginning of that slot.
+- Record per-index observation times (the endpoint returns a current value, not necessarily a source-origin timestamp). For historical/settlement/candle datasets keep their native event timestamp separately.
+- `index_price`, `underlying_price`, `mark_price`, `estimated_delivery_price`, and settled `delivery_price` are **not interchangeable**.
+- Reference-market joins should use `index_name` plus time constraints (as-of join with a documented maximum tolerated staleness), not only the common asset symbol. Store all price units and quote currencies explicitly.
+- Preserve `NULL` vs zero and original source precision; avoid invented Greeks or artificial backfilling of missed option-chain snapshots. Historical delivery/volatility series may be backfilled **only** when the API provides genuine event timestamps.
+- Be explicit about public OI delay and native funding rate units. Index prices alone do not prove execution price or option strategy performance.
+
+## Storage layout
+
+Each dataset uses a logical UTC day partition with **immutable time-slot or event parts**; no closed Parquet file is repeatedly rewritten.
 
 ```text
-<provider>/<dataset>/<underlying>/<YYYY>/<MM>/<DD>/<HHmm>.parquet
-```
-
-Example, with a four-hour UTC schedule:
-
-```text
-market-data/       # branch name, not a directory
+market-data (orphan branch)
   deribit/
     option_chain/
       BTC/2026/11/05/0000.parquet
       BTC/2026/11/05/0400.parquet
-      BTC/2026/11/05/0800.parquet
       ETH/2026/11/05/0000.parquet
-      ETH/2026/11/05/0400.parquet
-      PAXG/2026/11/05/0000.parquet   # only when enabled
+    index_price/
+      2026/11/05/0000.parquet       # all relevant index names, one row each
+      2026/11/05/0400.parquet
+    delivery_price/
+      2026/11/05/0000.parquet       # only if genuinely new delivery events found
+    volatility_index/
+      BTC/2026/11/05/0000.parquet   # optional, event-dated candles
 ```
 
-Each day directory is a logical partition; its time-slot files are the physical immutable snapshots. The slot in the filename identifies an expected schedule window, **not** the moment when the API was queried. Every row carries the actual `captured_at` time, and Parquet key/value metadata records the first and last capture time. Never backdate newly collected quotes when a scheduled job was missed.
+**Why index price is not split by BTC/ETH:** each requested index yields only one row per snapshot. Put a handful of distinct index-name rows in **one** small Parquet per slot to avoid hundreds of tiny files. It contains `index_name`, `base_currency`, `quote_currency`, `index_price`, `estimated_delivery_price`, `snapshot_slot_at`, `captured_at`, `schema_version`, `provider` and `source_method`. The option chain remains partitioned by base asset because it has many instrument rows.
 
-This hierarchy supports adding providers or separate datasets (e.g. `deribit/future/`, `provider/spot/`) later without restructuring the existing option-chain archive. Each dataset owns its own schema; do not normalize incompatible product fields into one giant table.
+For delivery events store `index_name`, native event date/time, native delivery price/unit, `first_observed_at` and source metadata; do not re-store old API history in every poll. Schema changes require explicit compatibility handling.
 
-## Config semantics
+## Frequency and Git commit policy
 
-`sources.deribit.datasets.option_chain.underlyings` lists **base assets** (BTC, ETH, PAXG), not settlement or quote currencies. The collector must not assume that `currency=BTC` returns every option on BTC.
+- `interval_hours` is per dataset, v1 accepts divisors of 24: `1, 2, 3, 4, 6, 8, 12, 24`. Defaults: chain and index price 4h, delivery event poll 24h. Optional datasets can be switched on independently when implemented.
+- One workflow scheduled at `37 * * * *` UTC. A **cheap due-gate** reads config to select all enabled due datasets before installing costly dependencies. `workflow_dispatch` can trigger an idempotent manual run.
+- Poll all configured underlyings/indices required by each due dataset, validate them, then publish all due datasets/underlyings together in **one Git commit per due UTC slot**. Commit count is determined by the union of dataset schedules, not by the number of assets. With current 4h + 24h schedule this is 6 commits/day.
+- Parquet files are immutable and named for the scheduled slot/day; late capture retains actual `captured_at` and must not pretend to be a historical observation. Delayed historical **events** have their own timestamp and idempotent event key.
+- Every due snapshot dataset must be complete before the batch commit; do not partially publish successful BTC if ETH/index retrieval fails. Delivery event datasets may correctly produce no files if no new event occurred.
+- Publisher uses GitHub Git Data API blob → tree → commit → non-forced ref update. Initial `market-data` commit has zero parents. No fetching/checkout of its full blob history; shallow main-only checkout for CI.
+- On race or retry, compare exact target paths (and event keys for event datasets); identical completed slots no-op, incomplete/conflicting data fail loudly. No `force-push`, automated squash or daily rewrites.
+- `GITHUB_TOKEN` scoped to `contents:write`; use Actions concurrency to avoid overlapping publishes.
+- Monitor actual compressed bytes, source coverage, index freshness, native event timestamps, missing slots, Git objects and annual commit count. The orphan branch remains part of the same GitHub repository object database.
 
-Deribit derivative API's `currency` parameter filters by **settlement currency**, while many linear options settle in USDC. A safe collection algorithm:
+## Validation and consumption
 
-1. Call `public/get_instruments?currency=any&kind=option&expired=false`.
-2. Filter returned instruments by their `base_currency` and configured dataset type; build the `instrument_name → metadata` map.
-3. Determine the required `settlement_currency` values; call `public/get_book_summary_by_currency` for each, with `kind=option`.
-4. Join by **exact** `instrument_name`, de-duplicate repeated matches and partition rows by the matched instrument's base asset.
-5. Reject unknown instruments, missing joins or suspiciously empty results; a configured symbol with zero listed contracts requires an explicit documented no-data outcome, not a silent success.
+- Test BTC/ETH and enabling PAXG via **only** configuration; include options across multiple settlement currencies and multiple index names per base.
+- Test index discovery, duplicate index-name responses, source data missing, empty settlement-event polls, late-arriving events, 4h chain/index alignment, nullable fields and Parquet ZSTD read/write.
+- Keep raw Parquet off `main` and Pages. DuckDB/PyArrow query a selected subset of the archive and join by exact `index_name` plus valid time.
+- Keep deployment gated until a real API contract test, end-to-end Git publish fixture and artifact-size measurement are successful.
 
-PAXG options are already listed on Deribit, so it is a valid extension of the initial configuration.
-
-Sources: [Deribit instrument API](https://skmtc.dev/deribit/apis/deribit-api-2/docs/public/get_instruments/get) and [PAXG launch](https://insights.deribit.com/education/pax-gold-paxg-from-paxos-launches-on-deribit/).
-
-## Parquet contract
-
-One row per instrument per captured snapshot. Explicit Arrow schema and schema version; do not infer table types from one day's data. Preserve original decimal values as float64 (nullable) without arbitrary pre-quantization. Core columns:
-
-- Identity: `provider`, `dataset`, `instrument_name`, `base_currency`, `quote_currency`, `settlement_currency`, `instrument_type`, `option_type`.
-- Contract: `expiration_at` (UTC), `strike`, `contract_size`, `tick_size`.
-- Market: `bid_price`, `ask_price`, `mid_price`, `mark_price`, `last_price`, `mark_iv`, `underlying_price`, `underlying_index`, `open_interest`, `volume`, `volume_usd` and current public real-time/delayed volume fields where present.
-- Timing: `snapshot_slot_at` and `captured_at` (UTC). Record `schema_version`, provider, dataset, underlying, count, capture bounds and collector version in file metadata.
-
-Keep `NULL` for missing quotes/fields (never coerce to zero). Keep price/volume **native units** and currency annotations; do not silently treat all values as USD. Do not claim book summaries contain official Greeks; their separate acquisition/modeling is a distinct dataset decision. Document any publication lag, particularly open interest, and do not represent lagged values as real-time.
-
-## Scheduling and Git publishing
-
-- Fixed hourly GitHub Actions trigger at UTC minute 37; the due-gate checks configurable per-dataset `interval_hours` before performing expensive collection. Default four-hour collection occurs at UTC 00:37, 04:37, 08:37, 12:37, 16:37, 20:37. Manual dispatch can retry skipped windows, but must not misrepresent newly fetched quotes as historical captures.
-- A due job collects **all configured symbols** for that dataset, validates every generated immutable Parquet part for that time slot, and publishes the batch atomically in one commit. A partial failed batch must not be reported as a full snapshot.
-- On first publish, create an orphan root commit with **zero parents** and create `refs/heads/market-data`.
-- For subsequent publishes, use GitHub Git Data API to create blobs and a new tree based on the existing tip tree, create a commit with the existing tip as its parent and advance the branch ref without `force`.
-- Do not checkout the `market-data` branch or fetch its historical blob objects in the collector. The normal `main` checkout uses depth 1.
-- Idempotency is per `provider/dataset/underlying/UTC-date/UTC-slot`: never overwrite a historical file or force-push. Verify **all** configured slot paths are either absent or already a complete identical snapshot; partial or conflicting writes fail loudly.
-- Protect against overlapping scheduled/manual runs with workflow concurrency. Avoid retrying API failures as blank or artificially reconstructed historical snapshots.
-- The collector needs only a scoped `GITHUB_TOKEN` (`contents: write`) on the same repository; do not store third-party API secrets for public market endpoints.
-- The orphan branch is an independent Git history but **shares repository object storage** and GitHub repo-size considerations with `main`. Use shallow/single-branch clones and inspect total repository size over time.
-
-## Consumption and lifecycle
-
-- Historical research reads `market-data` Parquet files via DuckDB/PyArrow after fetching only the requested files/refs, rather than mixing data into the regular code checkout.
-- Pages may later publish a deliberately reduced JSON summary; it should not download or parse years of raw option-chain files in the browser.
-- Schema changes must be explicit and backward-readable (new `schema=v2` dataset or schema metadata/reader evolution), never silently reinterpret existing columns.
-- Monitor actual ZSTD Parquet bytes, number of rows, success time, commit count, Git storage growth and missing UTC slots. Validate with real snapshots before treating any estimated per-file size as a guarantee.
-
-## Acceptance
-
-See [issue #6](https://github.com/BestNathan/nasset/issues/6) for the detailed implementation checklist and test fixtures.
+Full implementation acceptance: [issue #6](https://github.com/BestNathan/nasset/issues/6).
