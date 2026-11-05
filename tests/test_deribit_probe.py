@@ -48,7 +48,7 @@ def test_probe_is_read_only_and_measures_actual_parquet_fixture_bytes():
     assert output["compressed_parquet"]["volatility_index"]["rows"] == 2
     assert output["total_zstd_bytes"] > 0
     assert output["historical_volatility"]["BTC"]["observations"] == 1
-    assert output["delivery_price_samples"]["paxg_usdc"]["sample_rows"] == 1
+    assert output["delivery_price_samples"]["paxg_usdc"]["validated_rows"] == 1
     assert observed.count("get_instruments") == 2
     assert "get_index_price_names" in observed
     assert "get_delivery_prices" in observed
@@ -101,7 +101,41 @@ def test_source_settlement_date_must_not_be_interpreted_as_epoch():
             return {"data": [{"date": 1700000000000, "delivery_price": 10.0}],
                     "records_total": 1}
         return transport(method, params)
-    with pytest.raises(DeribitError, match="native YYYY-MM-DD"):
-        probe(config("index_price"), DeribitClient(
-            transport=invalid_delivery,
-        ), NOW)
+    report = probe(config("index_price"), DeribitClient(
+        transport=invalid_delivery,
+    ), NOW)
+    assert report["status"] == "blocked"
+    assert "delivery_price/btc_usd" in report["source_failures"]
+
+
+def test_probe_checks_all_delivery_pages_not_only_first_page():
+    calls = []
+    def repeated_page(method, params):
+        if method == "get_delivery_prices":
+            calls.append((params["index_name"], params["offset"]))
+            return {"data": [{"date": "2023-11-14", "delivery_price": 35000.0}],
+                    "records_total": 2}
+        return transport(method, params)
+    report = probe(config("index_price"), DeribitClient(transport=repeated_page), NOW)
+    assert report["status"] == "blocked"
+    assert "duplicate event date" in report["source_failures"]["delivery_price/btc_usd"]
+    assert ("btc_usd", 1) in calls
+    assert report["publisher_invoked"] is False
+
+
+def test_probe_reports_full_delivery_pagination_counts():
+    calls = []
+    def two_page_delivery(method, params):
+        if method == "get_delivery_prices":
+            calls.append(params["offset"])
+            events = [{"date": "2023-11-14", "delivery_price": 35000.0},
+                      {"date": "2023-11-15", "delivery_price": 35100.0}]
+            return {"data": events[params["offset"]:params["offset"] + params["count"]],
+                    "records_total": 2}
+        return transport(method, params)
+    report = probe(config("index_price"), DeribitClient(transport=two_page_delivery), NOW)
+    assert report["status"] == "ok"
+    assert report["delivery_price_samples"]["btc_usd"] == {
+        "validated_rows": 2, "pagination_complete": True,
+    }
+    assert calls.count(0) == len(INDEXES)
