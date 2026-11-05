@@ -16,7 +16,7 @@ import requests
 _PATH = re.compile(r"^deribit/[a-z_]+/(?:[A-Z0-9]+/)?[0-9]{4}/[0-9]{2}/[0-9]{2}/[0-9]{4}\.parquet$")
 _EVENT_KEY_PATH = re.compile(
     r"^deribit/event_keys/(?:historical_volatility/[A-Z0-9]+|delivery_price/[a-z0-9_]+)/"
-    r"[0-9]{4}/[0-9]{2}/[0-9]{2}/[0-9]{10,16}\.key$"
+    r"[0-9]{4}/[0-9]{2}/[0-9]{2}/(?:[0-9]{10,16}|[0-9]{4}-[0-9]{2}-[0-9]{2})\.key$"
 )
 _EVENT_PREFIX = b"deribit-event-v1\n"
 
