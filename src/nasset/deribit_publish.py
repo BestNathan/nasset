@@ -124,15 +124,19 @@ class GitHubArchivePublisher:
             raise ValueError(f"invalid coverage manifest path/size: {path}")
         try:
             data = json.loads(payload)
+            if not isinstance(data, dict):
+                raise ValueError("coverage must be a JSON object")
             slot = data["snapshot_slot_at"]
             entries = data["unlisted"]
         except (ValueError, KeyError, TypeError) as exc:
             raise ValueError(f"invalid coverage JSON: {path}") from exc
-        if (data.get("schema_version") != 1 or data.get("provider") != "deribit"
-                or not isinstance(slot, str)
-                or not slot.startswith(path.removeprefix("deribit/coverage/")
-                                       .removesuffix(".json")
-                                       .replace("/", "-")[:10])
+        stamp = path.removeprefix("deribit/coverage/").removesuffix(".json")
+        year, month, day, hhmm = stamp.split("/")
+        expected_slot = f"{year}-{month}-{day}T{hhmm[:2]}:{hhmm[2:]}:00+00:00"
+        if (type(data.get("schema_version")) is not int
+                or data["schema_version"] != 1
+                or data.get("provider") != "deribit"
+                or slot != expected_slot
                 or not isinstance(data.get("observed_at"), str)
                 or not isinstance(entries, list) or not entries):
             raise ValueError(f"invalid coverage manifest schema: {path}")
