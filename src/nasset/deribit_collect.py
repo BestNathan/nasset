@@ -14,6 +14,7 @@ from io import BytesIO
 from typing import Any
 
 import pyarrow.parquet as pq
+import requests
 
 from .deribit_archive import ArchiveConfig, load_config
 from .deribit_client import DeribitClient
@@ -74,7 +75,7 @@ def collect_once(
         size = publisher.repository_size_kib()
         result["repository_size_kib"] = size
         result["capacity_review_required"] = size >= CAPACITY_REVIEW_KIB
-    except (RuntimeError, KeyError, ValueError, OSError) as exc:
+    except (RuntimeError, KeyError, ValueError, OSError, requests.RequestException) as exc:
         # A committed batch must never be misreported as uncommitted simply
         # because a subsequent best-effort capacity check was unavailable.
         result["repository_size_warning"] = str(exc)
