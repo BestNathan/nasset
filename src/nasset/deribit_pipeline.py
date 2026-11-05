@@ -7,6 +7,7 @@ metadata; no historical Parquet files need to be downloaded.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from datetime import datetime, timezone, timedelta
 from typing import Mapping
 
@@ -27,6 +28,7 @@ class PreparedBatch:
     slot: datetime
     parts: Mapping[str, bytes]
     datasets: tuple[str, ...]
+    unlisted: tuple[tuple[str, str], ...] = ()
 
 
 def prepare_live_batch(
@@ -62,11 +64,16 @@ def prepare_live_batch(
     snapshot = None
     captured = instant
     if assets:
+        allowed_unlisted = tuple(sorted({
+            asset for ds in due if ds.name in {"option_chain", "futures_curve"}
+            for asset in ds.options.get("allow_unlisted", [])
+        }))
         snapshot = client.snapshot(
             assets,
             include_options="option_chain" in by_name,
             include_futures="futures_curve" in by_name,
             include_indices="index_price" in by_name,
+            allow_unlisted=allowed_unlisted,
         )
         captured = snapshot.captured_at
         if captured.tzinfo is None:
@@ -77,6 +84,7 @@ def prepare_live_batch(
             raise DeribitError("snapshot capture hour differs from requested UTC slot")
 
     parts: dict[str, bytes] = {}
+    unlisted: list[tuple[str, str]] = []
     for name, rows in (("option_chain", snapshot.options if snapshot else ()),
                        ("futures_curve", snapshot.futures if snapshot else ())):
         if name not in by_name:
@@ -85,14 +93,19 @@ def prepare_live_batch(
         for asset in ds.underlyings:
             selected = [row for row in rows if row.get("base_currency") == asset]
             if not selected:
-                # An asset may have listed options but no listed futures.
-                # Record capability absence rather than inventing a quote.
-                if name == "futures_curve" and not any(
-                    i.get("base_currency") == asset and i.get("kind") == "future"
-                    for i in snapshot.instruments
-                ):
+                # Only a *proven zero-listing* may be absent. A missing quote
+                # for even one listed contract is never an absent capability.
+                listed = [
+                    i for i in snapshot.instruments
+                    if i.get("base_currency") == asset
+                    and i.get("kind") == ("option" if name == "option_chain" else "future")
+                ]
+                if not listed and asset in ds.options.get("allow_unlisted", []):
+                    unlisted.append((name, asset))
                     continue
-                raise DeribitError(f"{name}: no rows for configured {asset}")
+                if not listed:
+                    raise DeribitError(f"{name}: no listed contracts for configured {asset}")
+                raise DeribitError(f"{name}: listed contracts have no quote rows for {asset}")
             parts[part_path(name, slot, underlying=asset)] = encode_part(
                 name, _project(name, selected), slot=slot, captured_at=captured,
                 compression_level=config.compression_level,
@@ -204,11 +217,31 @@ def prepare_live_batch(
             )
             parts.update(event_markers)
 
+    # Persist explicit, verified absence beside the hourly data. Otherwise
+    # a future reader could mistake "PAXG option contract not listed" for a
+    # lost PAXG file or incomplete ingestion. This is not market-price data.
+    if unlisted:
+        coverage_path = f"deribit/coverage/{slot:%Y/%m/%d/%H00}.json"
+        coverage = {
+            "schema_version": 1,
+            "provider": "deribit",
+            "snapshot_slot_at": slot.isoformat(),
+            "observed_at": captured.astimezone(timezone.utc).isoformat(),
+            "unlisted": [
+                {"dataset": dataset, "underlying": asset, "listed_count": 0}
+                for dataset, asset in sorted(unlisted)
+            ],
+        }
+        parts[coverage_path] = (json.dumps(
+            coverage, sort_keys=True, separators=(",", ":"), allow_nan=False,
+        ) + "\n").encode("utf-8")
+
     # Empty event-only increments are healthy. The caller must skip publish()
     # for an empty mapping; the publisher never accepts empty commits.
     if not parts and not set(by_name).issubset(HISTORY_DATASETS):
         raise DeribitError("no parts prepared for due snapshot datasets")
-    return PreparedBatch(slot, parts, tuple(ds.name for ds in due))
+    return PreparedBatch(slot, parts, tuple(ds.name for ds in due),
+                         tuple(sorted(unlisted)))
 
 
 def _project(dataset: str, rows: list[dict]) -> list[dict]:
