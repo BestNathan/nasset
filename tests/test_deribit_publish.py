@@ -290,7 +290,7 @@ def test_completed_slot_is_metadata_only_and_rejects_new_config():
     assert archive.completed_slot(SLOT_RECEIPT) is True
     assert all(method == "GET" for method, _, _ in session.calls)
     with pytest.raises(PublishConflict, match="different due config"):
-        archive.completed_slot((SLOT_RECEIPT[0], SLOT_RECEIPT[1] + b"\nchanged"))
+        archive.completed_slot((SLOT_RECEIPT[0], SLOT_RECEIPT[1].replace(b'"datasets":["option_chain","index_price"]', b'"datasets":["index_price"]')))
     missing = FakeSession()
     assert publisher(missing).completed_slot(SLOT_RECEIPT) is False
 
