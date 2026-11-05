@@ -119,7 +119,7 @@ For delivery events store `index_name`, native event date/time, native delivery 
 ## Finalized delivery-price REST pagination (implementation in PR #7)
 
 - `DeribitClient.delivery_prices(index_name)` queries the exact source index identifier through `get_delivery_prices` with explicit `offset`/`count` pagination. It requires a stable `records_total` and fails closed on missing pages, changing totals, malformed or conflicting native `date` events, and page limits. A source-reported empty series is valid.
-- Native `date` is retained as `event_timestamp` in milliseconds, separate from collection time; `delivery_price` is finalized settlement data, not `estimated_delivery_price` from `get_index_price`. The adapter does not infer underlying currency from an index suffix or invent events.
+- Deribit's native delivery `date` is `YYYY-MM-DD` **calendar-day precision**; persist it as `event_date` (string), with no invented Unix timestamp or 08:00 UTC instant. `delivery_price` is finalized settlement data, not `estimated_delivery_price` from `get_index_price`. The adapter does not infer underlying currency from an index suffix or invent events.
 - These pagination assumptions require verification against real Deribit responses before production. The adapter **does not yet implement event-level incremental filtering across archived slots**, delayed-event recovery, or daily batch wiring. The default pipeline deliberately refuses a due delivery dataset until these exist.
 - Offline tests cover multi-page responses, zero-event history, malformed values, changing totals, conflicting timestamps and bounded page exhaustion.
 
@@ -140,12 +140,12 @@ Daily `historical_volatility` (BTC/ETH) and finalized `delivery_price`
 each retry or later date. Their poll slot and event timestamp are independent.
 
 - Each observed event is identified by `dataset + native asset/index name +
-  event_timestamp`. A deterministic, tiny `deribit-event-v1` record also
+  native event key` (HV: epoch-millisecond timestamp; delivery: `YYYY-MM-DD`). A deterministic, tiny `deribit-event-v1` record also
   includes the native numeric value, so a source revision to an already
   archived event is detected as a **conflict**, not silently overwritten.
 - Immutable marker paths reside on **the same orphan `market-data` ref**:
   `deribit/event_keys/historical_volatility/BTC/YYYY/MM/DD/<event_ms>.key`
-  and `deribit/event_keys/delivery_price/btc_usd/YYYY/MM/DD/<event_ms>.key`.
+  and `deribit/event_keys/delivery_price/btc_usd/YYYY/MM/DD/YYYY-MM-DD.key`.
   The path date is the **native event UTC date**, not the daily poll date.
 - For each historical dataset, the collector asks the Git publisher for the
   exact candidate marker paths. It checks only the Git tree SHAs and never
@@ -181,6 +181,18 @@ availability are verified. Do not expose token values in logs.
 Offline tests cover replay without writes, late arrivals, conflicting values,
 combined snapshot/history batches, whole-batch failure, and atomic
 marker+Parquet publication. These tests do not validate Deribit's *live* PAXG
-contract listings, index discovery completeness, settlement `date` units,
-`records_total` pagination behavior, real compression sizing, or Git archive
-growth. Those must be verified before enabling the hourly workflow.
+contract listings, index discovery completeness, observed settlement response
+values, `records_total` pagination behavior, real compression sizing, or Git
+archive growth. Those must be verified before enabling the hourly workflow.
+
+
+### Delivery price source precision (2026-11-05 contract review)
+
+The published Deribit `get_delivery_prices` response documents native
+`date: "YYYY-MM-DD"` strings, not epoch-millisecond timestamps. The adapter,
+Parquet schema, stable event identity, and tests use this date-only precision.
+This prevents fabricating a settlement instant. Deribit's 2026-11-05 support
+notice mentions new start/end timestamp filters, but that release was
+**postponed**, so incremental replay does **not** depend on those filters.
+Date-only settlement and millisecond historical-volatility observations
+remain distinct identity domains.
