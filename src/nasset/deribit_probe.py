@@ -94,7 +94,8 @@ def probe(config: ArchiveConfig, client: DeribitClient,
                 capability_gaps.append({
                     "underlying": asset, "dataset": ds.name, "reason": reason,
                     "severity": ("informational"
-                                 if asset in ds.options.get("allow_unlisted", [])
+                                 if ds.name == "futures_curve"
+                                 or asset in ds.options.get("allow_unlisted", [])
                                  else "blocking"),
                 })
             else:
