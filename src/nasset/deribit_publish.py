@@ -26,6 +26,10 @@ _COVERAGE_PATH = re.compile(
     r"^deribit/coverage/[0-9]{4}/[0-9]{2}/[0-9]{2}/[0-9]{4}\.json$"
 )
 _SLOT_PATH = re.compile(r"^deribit/slots/[0-9]{4}/[0-9]{2}/[0-9]{2}/[0-9]{4}\.receipt$")
+# Avoid one POST /git/blobs for each of thousands of historical event keys.
+# Git Trees support inline UTF-8 content for blobs. Build small tree batches,
+# and move the ref only after every batch succeeds.
+TREE_BATCH_SIZE = 250
 
 
 class PublishConflict(RuntimeError):
@@ -196,11 +200,10 @@ class GitHubArchivePublisher:
         ref = self._api("GET", "/git/ref/heads/market-data", missing_ok=True)
         if ref is None:
             # The branch must be created as a zero-parent root, not from main.
-            blobs = self._blobs(parts)
-            tree = self._api("POST", "/git/trees", payload={"tree": blobs})
+            tree_sha = self._build_tree(parts, base_tree=None)
             commit = self._api("POST", "/git/commits", payload={
                 "message": "archive: initial Deribit market-data batch",
-                "tree": tree["sha"], "parents": [],
+                "tree": tree_sha, "parents": [],
             })
             try:
                 self._api("POST", "/git/refs", payload={
@@ -231,13 +234,10 @@ class GitHubArchivePublisher:
         if any(path in paths for path in names):
             raise PublishConflict("slot contains partial or conflicting immutable archive paths")
 
-        blobs = self._blobs(parts)
-        tree = self._api("POST", "/git/trees", payload={
-            "base_tree": base_tree, "tree": blobs,
-        })
+        tree_sha = self._build_tree(parts, base_tree=base_tree)
         next_commit = self._api("POST", "/git/commits", payload={
             "message": "archive: Deribit UTC batch " + names[0].split("/")[-1],
-            "tree": tree["sha"], "parents": [tip],
+            "tree": tree_sha, "parents": [tip],
         })
         # force=false rejects concurrent branch movement; caller must retry
         # by re-reading and validating the *whole* batch.
@@ -282,14 +282,49 @@ class GitHubArchivePublisher:
                     found[path] = leaf["sha"]
         return found
 
-    def _blobs(self, parts: Mapping[str, bytes]) -> list[dict]:
-        result = []
+    def _build_tree(self, parts: Mapping[str, bytes], *, base_tree: str | None) -> str:
+        """Build an immutable candidate tree without moving a branch ref.
+
+        Small trusted UTF-8 receipt/event/coverage markers are inlined via the
+        Git Tree API, avoiding O(event-count) POST /git/blobs rate-limits on
+        first historical delivery-price backfill (~10k marker objects). Native
+        Parquet binary blobs use the Git Blob API and verified Git SHA-1.
+        Tree batches only create unreachable candidates until the final
+        commit/ref update succeeds; failure cannot partially publish a slot.
+        """
+        tree_sha = base_tree
+        entries = []
         for path in sorted(parts):
-            blob = self._api("POST", "/git/blobs", payload={
-                "content": base64.b64encode(parts[path]).decode("ascii"),
-                "encoding": "base64",
-            })
-            if blob["sha"] != git_blob_sha(parts[path]):
-                raise RuntimeError(f"GitHub blob checksum mismatch: {path}")
-            result.append({"path": path, "mode": "100644", "type": "blob", "sha": blob["sha"]})
-        return result
+            entry = {"path": path, "mode": "100644", "type": "blob"}
+            if (_EVENT_KEY_PATH.fullmatch(path) or _SLOT_PATH.fullmatch(path)
+                    or _COVERAGE_PATH.fullmatch(path)):
+                try:
+                    entry["content"] = parts[path].decode("utf-8")
+                except UnicodeDecodeError as exc:
+                    raise ValueError(f"invalid UTF-8 marker: {path}") from exc
+            else:
+                blob = self._api("POST", "/git/blobs", payload={
+                    "content": base64.b64encode(parts[path]).decode("ascii"),
+                    "encoding": "base64",
+                })
+                if blob["sha"] != git_blob_sha(parts[path]):
+                    raise RuntimeError(f"GitHub blob checksum mismatch: {path}")
+                entry["sha"] = blob["sha"]
+            entries.append(entry)
+            if len(entries) == TREE_BATCH_SIZE:
+                tree_sha = self._publish_tree_chunk(entries, tree_sha)
+                entries = []
+        if entries:
+            tree_sha = self._publish_tree_chunk(entries, tree_sha)
+        if not tree_sha:
+            raise ValueError("cannot build empty Git tree")
+        return tree_sha
+
+    def _publish_tree_chunk(self, entries: list[dict], base: str | None) -> str:
+        body = {"tree": entries}
+        if base is not None:
+            body["base_tree"] = base
+        result = self._api("POST", "/git/trees", payload=body)
+        if not isinstance(result, dict) or not result.get("sha"):
+            raise RuntimeError("GitHub failed to return candidate tree SHA")
+        return result["sha"]
