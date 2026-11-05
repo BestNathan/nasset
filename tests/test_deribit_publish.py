@@ -251,7 +251,7 @@ def test_delivery_calendar_marker_is_a_supported_immutable_path():
 
 SLOT_RECEIPT = (
     "deribit/slots/2026/11/05/0400.receipt",
-    b'deribit-slot-v1\n{"datasets":["option_chain","index_price"],"slot":"2026-11-05T04:00:00Z"}',
+    b'deribit-slot-v1\n{"datasets":["option_chain","index_price"],"slot":"2026-11-05T04:00:00Z","required_paths":["deribit/index_price/2026/11/05/0400.parquet","deribit/option_chain/BTC/2026/11/05/0400.parquet"]}',
 )
 
 
