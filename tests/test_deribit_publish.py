@@ -237,3 +237,86 @@ def test_delivery_calendar_marker_is_a_supported_immutable_path():
     sha = git_blob_sha(blob)
     session = FakeSession(existing=True, paths={key: sha})
     assert publisher(session).existing((key,)) == {key: sha}
+
+
+
+SLOT_RECEIPT = (
+    "deribit/slots/2026/11/05/0400.receipt",
+    b'deribit-slot-v1\n{"datasets":["option_chain","index_price"],"slot":"2026-11-05T04:00:00Z"}',
+)
+
+
+def test_slot_receipt_is_atomic_with_multiple_parquet_parts():
+    session = FakeSession()
+    result = publisher(session).publish(PARTS, slot_receipt=SLOT_RECEIPT)
+    assert result.created
+    tree = next(body for method, path, body in session.calls if path == "/git/trees")
+    assert set(item["path"] for item in tree["tree"]) == {
+        *PARTS, SLOT_RECEIPT[0],
+    }
+    assert len([x for x in session.calls if x[1] == "/git/blobs"]) == 3
+    commit = next(body for _, path, body in session.calls if path == "/git/commits")
+    assert commit["parents"] == []
+
+
+def test_slot_receipt_does_not_require_stable_capture_timestamp_on_retry():
+    previous = {path: git_blob_sha(data) for path, data in PARTS.items()}
+    previous[SLOT_RECEIPT[0]] = git_blob_sha(SLOT_RECEIPT[1])
+    session = FakeSession(existing=True, paths=previous)
+    later = {P1: b"PAR1different-dataPAR1", P2: b"PAR1later-capturePAR1"}
+    result = publisher(session).publish(later, slot_receipt=SLOT_RECEIPT)
+    assert not result.created
+    assert result.commit_sha == "tip"
+    assert all(method == "GET" for method, _, _ in session.calls)
+
+
+def test_completed_slot_is_metadata_only_and_rejects_new_config():
+    previous = {SLOT_RECEIPT[0]: git_blob_sha(SLOT_RECEIPT[1])}
+    session = FakeSession(existing=True, paths=previous)
+    archive = publisher(session)
+    assert archive.completed_slot(SLOT_RECEIPT) is True
+    assert all(method == "GET" for method, _, _ in session.calls)
+    with pytest.raises(PublishConflict, match="different due config"):
+        archive.completed_slot((SLOT_RECEIPT[0], SLOT_RECEIPT[1] + b"\nchanged"))
+    missing = FakeSession()
+    assert publisher(missing).completed_slot(SLOT_RECEIPT) is False
+
+
+def test_receipt_with_missing_parquet_path_aborts_instead_of_claiming_success():
+    session = FakeSession(existing=True, paths={
+        P1: git_blob_sha(PARTS[P1]),
+        SLOT_RECEIPT[0]: git_blob_sha(SLOT_RECEIPT[1]),
+    })
+    with pytest.raises(PublishConflict, match="requested archive paths"):
+        publisher(session).publish(PARTS, slot_receipt=SLOT_RECEIPT)
+    assert all(method == "GET" for method, _, _ in session.calls)
+
+
+def test_changed_receipt_rejects_publishing_into_existing_slot():
+    session = FakeSession(existing=True, paths={
+        P1: git_blob_sha(PARTS[P1]),
+        P2: git_blob_sha(PARTS[P2]),
+        SLOT_RECEIPT[0]: "old-due-config",
+    })
+    with pytest.raises(PublishConflict, match="different configuration"):
+        publisher(session).publish(PARTS, slot_receipt=SLOT_RECEIPT)
+    assert all(method == "GET" for method, _, _ in session.calls)
+
+
+def test_slot_receipt_rejects_mixed_hours_or_invalid_path():
+    bad = {**PARTS, "deribit/index_price/2026/11/05/0500.parquet": b"PAR1otherPAR1"}
+    session = FakeSession()
+    with pytest.raises(ValueError, match="UTC slot"):
+        publisher(session).publish(bad, slot_receipt=SLOT_RECEIPT)
+    with pytest.raises(ValueError, match="receipt path"):
+        publisher(session).publish(PARTS, slot_receipt=("../wrong.receipt", SLOT_RECEIPT[1]))
+    assert session.calls == []
+
+
+def test_receipt_ref_race_is_not_forced_or_retried_blindly():
+    session = FakeSession(existing=True, fail_patch=True)
+    with pytest.raises(PublishConflict):
+        publisher(session).publish(PARTS, slot_receipt=SLOT_RECEIPT)
+    patches = [payload for method, path, payload in session.calls
+               if method == "PATCH" and path == "/git/refs/heads/market-data"]
+    assert len(patches) == 1 and patches[0]["force"] is False
