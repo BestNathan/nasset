@@ -88,12 +88,9 @@ class GitHubArchivePublisher:
         tip = ref["object"]["sha"]
         commit = self._api("GET", f"/git/commits/{tip}")
         base_tree = commit["tree"]["sha"]
-        # Read tree metadata only; never fetch historical Parquet blob contents.
-        existing = self._api("GET", f"/git/trees/{base_tree}?recursive=1")
-        if existing.get("truncated"):
-            raise RuntimeError("GitHub recursive tree truncated; refusing unsafe publish")
-        paths = {entry["path"]: entry["sha"] for entry in existing["tree"]
-                 if entry["type"] == "blob"}
+        # Walk only the directory prefixes of requested parts. Recursive trees
+        # eventually truncate in a long-lived archive and must not be used.
+        paths = self._existing_paths(base_tree, names)
         matches = [path for path in names if paths.get(path) == git_blob_sha(parts[path])]
         if len(matches) == len(names):
             return PublishResult(tip, False, names)
@@ -114,6 +111,42 @@ class GitHubArchivePublisher:
             "sha": next_commit["sha"], "force": False,
         })
         return PublishResult(next_commit["sha"], True, names)
+
+    def _existing_paths(self, root_tree: str, paths: tuple[str, ...]) -> dict[str, str]:
+        """Resolve requested paths using non-recursive Git trees only.
+
+        Shared directory prefixes are fetched once. A missing directory means
+        its descendants cannot exist; a blob in place of a directory is a
+        conflict rather than permission to replace existing archive content.
+        """
+        cache: dict[str, dict[str, dict]] = {}
+
+        def entries(sha: str) -> dict[str, dict]:
+            if sha not in cache:
+                response = self._api("GET", f"/git/trees/{sha}")
+                if response.get("truncated"):
+                    raise RuntimeError("GitHub tree truncated; refusing unsafe publish")
+                cache[sha] = {entry["path"]: entry for entry in response["tree"]}
+            return cache[sha]
+
+        found: dict[str, str] = {}
+        for path in paths:
+            segments = path.split("/")
+            tree_sha = root_tree
+            for segment in segments[:-1]:
+                entry = entries(tree_sha).get(segment)
+                if entry is None:
+                    break
+                if entry["type"] != "tree":
+                    raise PublishConflict(f"non-directory in archive path: {path}")
+                tree_sha = entry["sha"]
+            else:
+                leaf = entries(tree_sha).get(segments[-1])
+                if leaf is not None:
+                    if leaf["type"] != "blob":
+                        raise PublishConflict(f"non-file archive target: {path}")
+                    found[path] = leaf["sha"]
+        return found
 
     def _blobs(self, parts: Mapping[str, bytes]) -> list[dict]:
         result = []
