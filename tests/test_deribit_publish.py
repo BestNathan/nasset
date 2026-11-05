@@ -175,3 +175,51 @@ def test_existing_complete_retry_uses_only_nonrecursive_trees():
     session = FakeSession(existing=True, paths={p: git_blob_sha(data) for p, data in PARTS.items()})
     assert not publisher(session).publish(PARTS).created
     assert all("?recursive" not in path for _, path, _ in session.calls)
+
+
+EVENT_PATH = "deribit/event_keys/historical_volatility/BTC/2023/11/14/1700000000000.key"
+EVENT_BLOB = b'deribit-event-v1\n{"dataset":"historical_volatility","identity":"BTC","timestamp":1700000000000,"value":50.0}'
+
+
+def test_event_lookup_is_read_only_and_checks_only_requested_tree_paths():
+    sha = git_blob_sha(EVENT_BLOB)
+    session = FakeSession(existing=True, paths={EVENT_PATH: sha, P1: "older"})
+    result = publisher(session).existing((EVENT_PATH,))
+    assert result == {EVENT_PATH: sha}
+    assert all(method == "GET" for method, _, _ in session.calls)
+    assert not any("?recursive" in path for _, path, _ in session.calls)
+
+
+def test_event_lookup_returns_empty_before_orphan_initialization():
+    session = FakeSession()
+    assert publisher(session).existing((EVENT_PATH,)) == {}
+    assert len(session.calls) == 1
+
+
+def test_event_markers_and_parquet_commit_in_one_atomic_tree():
+    session = FakeSession(existing=True)
+    result = publisher(session).publish({P1: PARTS[P1], EVENT_PATH: EVENT_BLOB})
+    assert result.created
+    tree = next(body for _, path, body in session.calls if path == "/git/trees")
+    assert len(tree["tree"]) == 2
+    assert set(x["path"] for x in tree["tree"]) == {P1, EVENT_PATH}
+    assert len([1 for _, path, _ in session.calls if path == "/git/commits"]) == 1
+
+
+def test_event_marker_without_parquet_or_wrong_magic_is_rejected():
+    for parts in (
+        {EVENT_PATH: EVENT_BLOB},
+        {P1: PARTS[P1], EVENT_PATH: b"wrong marker"},
+        {P1: PARTS[P1], "../unsafe.key": EVENT_BLOB},
+    ):
+        session = FakeSession()
+        with pytest.raises(ValueError):
+            publisher(session).publish(parts)
+        assert session.calls == []
+
+
+def test_event_marker_conflict_is_not_overwritten():
+    session = FakeSession(existing=True, paths={EVENT_PATH: "conflicting-blob"})
+    with pytest.raises(PublishConflict, match="partial or conflicting"):
+        publisher(session).publish({P1: PARTS[P1], EVENT_PATH: EVENT_BLOB})
+    assert all(method == "GET" for method, _, _ in session.calls)
