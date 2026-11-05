@@ -33,7 +33,7 @@ jobs:
         run: echo "slot=$(date -u +'%Y-%m-%dT%H:00:00Z')" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 1
           persist-credentials: false
 
@@ -67,7 +67,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 1
           persist-credentials: false
 
