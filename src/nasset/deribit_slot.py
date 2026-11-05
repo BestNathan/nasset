@@ -37,7 +37,17 @@ def slot_receipt(config: ArchiveConfig, now: datetime) -> tuple[str, bytes]:
         }
         for dataset in sorted(due, key=lambda dataset: dataset.name)
     ]
+    required_paths = []
+    for dataset in due:
+        if dataset.name in {"option_chain", "volatility_index"}:
+            for asset in dataset.underlyings:
+                if dataset.name == "option_chain" and asset in dataset.options.get("allow_unlisted", []):
+                    continue
+                required_paths.append(f"deribit/{dataset.name}/{asset}/{slot:%Y/%m/%d/%H00}.parquet")
+        elif dataset.name == "index_price":
+            required_paths.append(f"deribit/index_price/{slot:%Y/%m/%d/%H00}.parquet")
     document = {
+        "required_paths": sorted(required_paths),
         "version": 1,
         "provider": "deribit",
         "utc_slot": slot.isoformat(),
