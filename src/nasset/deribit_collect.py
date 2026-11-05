@@ -20,6 +20,7 @@ from .deribit_archive import ArchiveConfig, load_config
 from .deribit_client import DeribitClient
 from .deribit_pipeline import prepare_live_batch
 from .deribit_publish import GitHubArchivePublisher
+from .deribit_slot import slot_receipt
 
 CAPACITY_REVIEW_KIB = 3 * 1024 * 1024
 
@@ -37,6 +38,18 @@ def collect_once(
     due = config.due(now)
     if not due:
         return {"status": "not_due", "datasets": [], "paths": []}
+
+    receipt = slot_receipt(config, now)
+    if publish and publisher.completed_slot(receipt):
+        return {
+            "status": "already_published",
+            "slot": now.astimezone(timezone.utc).replace(
+                minute=0, second=0, microsecond=0,
+            ).isoformat(),
+            "datasets": [d.name for d in due],
+            "paths": [],
+            "note": "matching immutable UTC slot receipt; source was not queried",
+        }
 
     batch = prepare_live_batch(config, client, now, existing=publisher.existing)
     summaries: dict[str, dict[str, int]] = defaultdict(lambda: {"rows": 0, "bytes": 0, "parts": 0})
@@ -67,7 +80,8 @@ def collect_once(
     if not batch.parts:
         result["status"] = "no_new_events"
     elif publish:
-        saved = publisher.publish(batch.parts, branch=config.branch)
+        saved = publisher.publish(batch.parts, branch=config.branch,
+                                  slot_receipt=receipt)
         result["status"] = "created" if saved.created else "already_published"
         result["commit_sha"] = saved.commit_sha
 
