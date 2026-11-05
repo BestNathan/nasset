@@ -1,5 +1,4 @@
-# Market data archival plan (issue #6).
-# The collector/workflow is not yet enabled. Modify only underlyings to add another asset.
+# Market-data archival plan (issue #6); collector/workflow not deployed yet.
 version: 1
 
 storage:
@@ -14,6 +13,10 @@ sources:
     datasets:
       option_chain:
         enabled: true
+        # Must be a positive divisor of 24 in v1 (1, 2, 3, 4, 6, 8, 12, 24).
+        # The future scheduler ticks hourly at UTC minute 37, and only collects
+        # when the current UTC hour is divisible by interval_hours.
+        interval_hours: 4
         # Base/underlying currencies, NOT Deribit settlement currency query values.
         # To add gold options: [BTC, ETH, PAXG]
         underlyings: [BTC, ETH]
