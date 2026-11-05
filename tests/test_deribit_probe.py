@@ -117,7 +117,12 @@ def test_production_probe_keeps_paxg_reference_data_without_gold_option_scope():
     assert not report["source_failures"]
     assert report["measured_scope"]["option_chain"] == ["BTC", "ETH"]
     assert report["measured_scope"]["index_price"] == ["BTC", "ETH", "PAXG"]
-    assert report["measured_scope"]["futures_curve"] == ["BTC", "ETH", "PAXG"]
+    # The fixture has no ETH future; it is correctly absent from measured
+    # futures rows and reported as an informational missing-listed-product gap.
+    assert report["measured_scope"]["futures_curve"] == ["BTC", "PAXG"]
+    assert any(g["underlying"] == "ETH" and g["dataset"] == "futures_curve"
+               and g["severity"] == "informational"
+               for g in report["capability_gaps"])
     assert report["underlyings"]["PAXG"]["options_listed"] == 0
     assert report["underlyings"]["PAXG"]["futures_listed"] == 1
     assert "paxg_usdc" in report["referenced_index_names"]
