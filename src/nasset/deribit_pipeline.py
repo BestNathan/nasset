@@ -71,6 +71,13 @@ def prepare_live_batch(config: ArchiveConfig, client: DeribitClient, now: dateti
         for asset in ds.underlyings:
             selected = [row for row in rows if row.get("base_currency") == asset]
             if not selected:
+                # An asset may have listed options but no listed futures.
+                # Record capability absence rather than inventing a quote.
+                if name == "futures_curve" and not any(
+                    i.get("base_currency") == asset and i.get("kind") == "future"
+                    for i in snapshot.instruments
+                ):
+                    continue
                 raise DeribitError(f"{name}: no rows for configured {asset}")
             parts[part_path(name, slot, underlying=asset)] = encode_part(
                 name, _project(name, selected), slot=slot, captured_at=captured,
