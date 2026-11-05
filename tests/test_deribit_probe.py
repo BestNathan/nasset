@@ -168,12 +168,20 @@ def test_explicit_unlisted_paxg_is_informational_and_live_probe_can_pass():
     result = probe(cfg, DeribitClient(transport=no_paxg_options), NOW)
     assert result["status"] == "ok"
     assert not result["source_failures"]
-    assert result["capability_gaps"] == [{
-        "underlying": "PAXG",
-        "dataset": "option_chain",
-        "reason": "no option instruments listed",
-        "severity": "informational",
-    }]
+    assert result["capability_gaps"] == [
+        {
+            "underlying": "PAXG",
+            "dataset": "option_chain",
+            "reason": "no option instruments listed",
+            "severity": "informational",
+        },
+        {
+            "underlying": "ETH",
+            "dataset": "futures_curve",
+            "reason": "no futures listed",
+            "severity": "informational",
+        },
+    ]
     assert result["compressed_parquet"]["option_chain"]["rows"] == 3
     assert result["measured_scope"]["option_chain"] == ["BTC", "ETH"]
     assert result["measured_scope"]["futures_curve"] == ["BTC", "ETH", "PAXG"]
