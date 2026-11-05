@@ -100,8 +100,20 @@ def prepare_live_batch(
 
     if "index_price" in by_name:
         ds = by_name["index_price"]
-        names = {row.get("price_index"): row.get("base_currency")
-                 for row in snapshot.instruments if row.get("price_index")}
+        # A full index identifier must resolve to exactly one base asset.
+        # Dictionary-comprehension overwrite would silently misattribute a
+        # shared or malformed source index to whichever instrument came last.
+        names: dict[str, str] = {}
+        for instrument in snapshot.instruments:
+            index_name = instrument.get("price_index")
+            if not index_name:
+                continue
+            asset = instrument.get("base_currency")
+            previous = names.setdefault(index_name, asset)
+            if previous != asset:
+                raise DeribitError(
+                    f"index maps to multiple base assets: {index_name}"
+                )
         indices = []
         for row in snapshot.indices:
             index_name = row["index_name"]
