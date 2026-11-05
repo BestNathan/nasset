@@ -186,3 +186,39 @@ def test_dvol_normalizes_and_sorts_native_ohlc():
     assert [x["event_timestamp"] for x in candles] == [3600000, 5400000]
     assert candles[1]["close"] == 12
     assert all(x["base_currency"] == "ETH" for x in candles)
+
+
+def test_historical_volatility_preserves_native_events_and_deduplicates():
+    def transport(method, params):
+        assert method == "get_historical_volatility"
+        assert params == {"currency": "BTC"}
+        return [[1700003600000, 52.5], [1700000000000, 49.0],
+                [1700003600000, 52.5]]
+    client = DeribitClient(transport=transport)
+    assert client.historical_volatility("BTC") == (
+        {"base_currency": "BTC", "event_timestamp": 1700000000000, "volatility": 49.0},
+        {"base_currency": "BTC", "event_timestamp": 1700003600000, "volatility": 52.5},
+    )
+
+
+@pytest.mark.parametrize("payload", [
+    {"data": []}, [[123, 10], [123, 11]], [[123, None]],
+    [[123, float("nan")]], [[123, -1]], [[True, 12]], [[0, 10]],
+])
+def test_historical_volatility_rejects_malformed_or_conflicting_data(payload):
+    client = DeribitClient(transport=lambda method, params: payload)
+    with pytest.raises(DeribitError):
+        client.historical_volatility("ETH")
+
+
+def test_historical_volatility_does_not_query_unsupported_paxg():
+    calls = []
+    client = DeribitClient(transport=lambda method, params: calls.append(method))
+    with pytest.raises(ValueError, match="unsupported"):
+        client.historical_volatility("PAXG")
+    assert calls == []
+
+
+def test_historical_volatility_empty_series_is_not_a_synthetic_zero():
+    client = DeribitClient(transport=lambda method, params: [])
+    assert client.historical_volatility("ETH") == ()
