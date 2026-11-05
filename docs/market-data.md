@@ -7,23 +7,23 @@ Status: **design only, collection not yet enabled**. Implementation: [issue #6](
 - Code, workflow and configuration remain on `main`; archived immutable Parquet objects live on a true `market-data` **orphan branch** (no shared root history), in the same GitHub repository.
 - Parquet uses native ZSTD compression level 6. Schema is explicit and versioned. Do **not** create a global numeric instrument-ID dictionary: store the original names, and use Parquet dictionary encoding as appropriate.
 - Deribit collection is now a **multi-dataset provider** rather than an option-chain-only job. Each dataset has its own source API, typed schema, frequency, validation rules and partitioning.
-- Common `sources.deribit.underlyings: [BTC, ETH]` selects underlying/base assets. Adding `PAXG` expands compatible enabled datasets without a code change.
-- Optional dataset-level `underlyings` overrides the common asset list where availability is genuinely narrower (DVOL/HV, for example). Never assume every provider dataset exists for every asset.
+- Common `sources.deribit.underlyings: [BTC, ETH, PAXG]` selects underlying/base assets. PAXG is enabled in the target configuration, including its listed options and futures/perpetuals where present.
+- Optional dataset-level `underlyings` overrides the common list where API capability is narrower. DVOL and historical volatility are initially limited to BTC/ETH. Adding PAXG to the common scope does **not** automatically invoke unsupported volatility endpoints. Missing listed instruments must be distinguished from errors and recorded as explicit coverage/capability status.
 - Collect raw reference series with native units/timestamps; do not mix them into an investment-theme hierarchy.
 
 ## Datasets and priorities
 
 | Dataset | Initial enabled | API | Update semantics / research use |
 |---|---|---|---|
-| `option_chain` | yes, 4h | `public/get_instruments` + `public/get_book_summary_by_currency` | One current option quote per instrument; options prices, IV, OI, expiries, put/call surfaces |
-| `index_price` | yes, 4h | `public/get_supported_index_names` or `get_index_price_names`, then `public/get_index_price` | Index observation + estimated delivery reference, time-aligned to chain |
+| `option_chain` | yes, 1h | `public/get_instruments` + `public/get_book_summary_by_currency` | One current option quote per instrument; options prices, IV, OI, expiries, put/call surfaces |
+| `index_price` | yes, 1h | `public/get_supported_index_names` or `get_index_price_names`, then `public/get_index_price` | Index observation + estimated delivery reference, time-aligned to chain |
 | `delivery_price` | yes, daily poll | `public/get_delivery_prices` | Immutable actual delivery/settlement *events*, not latest-price snapshots; vital to realized expiry P&L |
-| `volatility_index` | no, optional | `public/get_volatility_index_data` | Native timestamped DVOL candles; discover availability; BTC/ETH initial allowlist |
-| `historical_volatility` | no, optional | `public/get_historical_volatility` | Realized-volatility observations with native time axis; compare IV/RV |
-| `futures_curve` | no, optional | `public/get_book_summary_by_currency` (`kind=future`) | Native futures / perpetual prices and basis, optionally option forward context |
+| `volatility_index` | yes, 1h (BTC/ETH only) | `public/get_volatility_index_data` | Native timestamped DVOL candles; discover availability; BTC/ETH initial allowlist |
+| `historical_volatility` | yes, daily incremental (BTC/ETH only) | `public/get_historical_volatility` | Realized-volatility observations with native time axis; compare IV/RV |
+| `futures_curve` | yes, 1h | `public/get_book_summary_by_currency` (`kind=future`) | Native futures / perpetual prices and basis, optionally option forward context |
 | `funding_rate` | no, optional | `public/get_funding_rate_history` | Native hourly funding data for actual perpetual instruments (do not query for spot/options) |
 
-Later high-cardinality sources (individual Greeks tickers, order books, full trades) are separate follow-up work. Do not initiate thousands of per-instrument requests within the bulk-chain collector. Historical index candles are optionally accessible via `public/get_index_chart_data`; don't conflate API-native time series with live observations.
+P0 and P1 are enabled in the target design, subject to API capability verification before scheduled production collection. Later high-cardinality sources (individual Greeks tickers, order books, full trades) are separate follow-up work. Do not initiate thousands of per-instrument requests within the bulk-chain collector. Historical index candles are optionally accessible via `public/get_index_chart_data`; don't conflate API-native time series with live observations.
 
 References:
 - [Deribit get_index_price](https://skmtc.dev/deribit/apis/deribit-api/docs/public/get_index_price/get)
@@ -61,15 +61,19 @@ market-data (orphan branch)
   deribit/
     option_chain/
       BTC/2026/11/05/0000.parquet
-      BTC/2026/11/05/0400.parquet
+      BTC/2026/11/05/0100.parquet
       ETH/2026/11/05/0000.parquet
+      PAXG/2026/11/05/0000.parquet
     index_price/
       2026/11/05/0000.parquet       # all relevant index names, one row each
-      2026/11/05/0400.parquet
+      2026/11/05/0100.parquet
     delivery_price/
       2026/11/05/0000.parquet       # only if genuinely new delivery events found
     volatility_index/
-      BTC/2026/11/05/0000.parquet   # optional, event-dated candles
+      BTC/2026/11/05/0000.parquet   # hourly incremental DVOL candles
+      ETH/2026/11/05/0000.parquet
+    futures_curve/
+      PAXG/2026/11/05/0000.parquet # only if supported contracts are listed
 ```
 
 **Why index price is not split by BTC/ETH:** each requested index yields only one row per snapshot. Put a handful of distinct index-name rows in **one** small Parquet per slot to avoid hundreds of tiny files. It contains `index_name`, `base_currency`, `quote_currency`, `index_price`, `estimated_delivery_price`, `snapshot_slot_at`, `captured_at`, `schema_version`, `provider` and `source_method`. The option chain remains partitioned by base asset because it has many instrument rows.
@@ -78,9 +82,9 @@ For delivery events store `index_name`, native event date/time, native delivery 
 
 ## Frequency and Git commit policy
 
-- `interval_hours` is per dataset, v1 accepts divisors of 24: `1, 2, 3, 4, 6, 8, 12, 24`. Defaults: chain and index price 4h, delivery event poll 24h. Optional datasets can be switched on independently when implemented.
-- One workflow scheduled at `37 * * * *` UTC. A **cheap due-gate** reads config to select all enabled due datasets before installing costly dependencies. `workflow_dispatch` can trigger an idempotent manual run.
-- Poll all configured underlyings/indices required by each due dataset, validate them, then publish all due datasets/underlyings together in **one Git commit per due UTC slot**. Commit count is determined by the union of dataset schedules, not by the number of assets. With current 4h + 24h schedule this is 6 commits/day.
+- `interval_hours` is per dataset, v1 accepts divisors of 24: `1, 2, 3, 4, 6, 8, 12, 24`. Target defaults: chain, index price, DVOL and futures curve **1h**, delivery and historical-volatility increments **24h**. DVOL and historical volatility currently use BTC/ETH-only allowlists, with PAXG covered by chain/index/futures if supported.
+- One workflow scheduled at `37 * * * *` UTC. A **cheap due-gate** reads config to select all enabled due datasets before installing costly dependencies. The archive runs hourly for P0/P1 live market snapshots, and daily for historical event datasets; a polling frequency must not be confused with the native event sampling interval. `workflow_dispatch` can trigger an idempotent manual run.
+- Poll all configured underlyings/indices required by each due dataset, validate them, then publish all due datasets/underlyings together in **one Git commit per due UTC slot**. Commit count is determined by the union of dataset schedules, not by the number of assets. With current 1h + 24h schedule this is **24 commits/day (~8,760/year)**, not one commit per dataset or per asset.
 - Parquet files are immutable and named for the scheduled slot/day; late capture retains actual `captured_at` and must not pretend to be a historical observation. Delayed historical **events** have their own timestamp and idempotent event key.
 - Every due snapshot dataset must be complete before the batch commit; do not partially publish successful BTC if ETH/index retrieval fails. Delivery event datasets may correctly produce no files if no new event occurred.
 - Publisher uses GitHub Git Data API blob → tree → commit → non-forced ref update. Initial `market-data` commit has zero parents. No fetching/checkout of its full blob history; shallow main-only checkout for CI.
@@ -88,10 +92,18 @@ For delivery events store `index_name`, native event date/time, native delivery 
 - `GITHUB_TOKEN` scoped to `contents:write`; use Actions concurrency to avoid overlapping publishes.
 - Monitor actual compressed bytes, source coverage, index freshness, native event timestamps, missing slots, Git objects and annual commit count. The orphan branch remains part of the same GitHub repository object database.
 
+## Capacity and future rolling policy (design only)
+
+- With BTC+ETH alone, previous planning model estimated ~3.1 GB/year of Parquet data with hourly chain/index/DVOL/futures plus daily history/settlement checks. **PAXG adds unmeasured volume**; neither its current contract count nor Git pack overhead has been benchmarked. Measure on real live snapshots before setting retention thresholds.
+- Hourly unified collection means ~24 Git commits/day, ~8,760/year; the number of configured assets/datasets does not multiply commits. Each UTC slot writes immutable typed Parquet parts with a single batch commit. No daily rewrite of compressed Parquet blobs.
+- GitHub **strongly recommends** repositories remain under 5 GB, even though orphan branches do not affect the objects pulled by a properly scoped shallow main checkout. They still **share repository object storage**. Monitor Git object size, total Parquet bytes, object/file count, commit count and projected growth; trigger capacity review early (~3 GB) rather than treating 5 GB as unlimited headroom.
+- **Rolling historical retention is explicitly deferred.** Do not squash/amend/rebase/force-push, delete snapshots or auto-GC as part of this change. The future proposal must compare (a) all-hourly retention, (b) immutable tiered data rollups and yearly sealed manifests, and (c) annual repository/archive split or external cold storage while preserving raw auditability and stable historical references.
+- An **aggregated daily/weekly Parquet** cannot safely replace raw hourly files until the aggregation and sampling semantics, preservation of native timestamps, reproducible manifests/checksums, migration and recovery tests, and actual Git storage reclamation are independently validated. Compaction in the working tree alone does not free Git commit history.
+
 ## Validation and consumption
 
-- Test BTC/ETH and enabling PAXG via **only** configuration; include options across multiple settlement currencies and multiple index names per base.
-- Test index discovery, duplicate index-name responses, source data missing, empty settlement-event polls, late-arriving events, 4h chain/index alignment, nullable fields and Parquet ZSTD read/write.
+- Test BTC/ETH/PAXG from common configuration; include options across multiple settlement currencies, the PAXG futures/option listing behavior and multiple index names per base. Verify DVOL/HV remain BTC/ETH-only unless support is explicitly confirmed.
+- Test index discovery, duplicate index-name responses, source data missing, empty settlement-event polls, late-arriving events, **hourly** chain/index/futures/DVOL alignment, daily history polling, nullable fields and Parquet ZSTD read/write.
 - Keep raw Parquet off `main` and Pages. DuckDB/PyArrow query a selected subset of the archive and join by exact `index_name` plus valid time.
 - Keep deployment gated until a real API contract test, end-to-end Git publish fixture and artifact-size measurement are successful.
 
