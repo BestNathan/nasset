@@ -97,6 +97,36 @@ def test_unlisted_paxg_options_are_a_capability_failure_not_synthetic_data():
     assert report["compressed_parquet"]["option_chain"]["rows"] == 3
 
 
+
+def test_production_probe_keeps_paxg_reference_data_without_gold_option_scope():
+    from pathlib import Path
+    from nasset.deribit_archive import load_config
+
+    actual = load_config(Path(__file__).resolve().parents[1] /
+                         "config" / "market-data.yml")
+    def missing_paxg_options(method, params):
+        rows = transport(method, params)
+        if method == "get_instruments" and params["kind"] == "option":
+            return [row for row in rows if row["base_currency"] != "PAXG"]
+        if method == "get_book_summary_by_currency" and params["kind"] == "option":
+            return [row for row in rows if row["instrument_name"] != "PAXG-OPT"]
+        return rows
+
+    report = probe(actual, DeribitClient(transport=missing_paxg_options), NOW)
+    assert report["status"] == "ok"
+    assert not report["source_failures"]
+    assert report["measured_scope"]["option_chain"] == ["BTC", "ETH"]
+    assert report["measured_scope"]["index_price"] == ["BTC", "ETH", "PAXG"]
+    assert report["measured_scope"]["futures_curve"] == ["BTC", "ETH", "PAXG"]
+    assert report["underlyings"]["PAXG"]["options_listed"] == 0
+    assert report["underlyings"]["PAXG"]["futures_listed"] == 1
+    assert "paxg_usdc" in report["referenced_index_names"]
+    assert not any(g["underlying"] == "PAXG" and g["dataset"] == "option_chain"
+                   for g in report["capability_gaps"])
+    assert report["compressed_parquet"]["option_chain"]["rows"] == 3
+
+
+
 def test_source_settlement_date_must_not_be_interpreted_as_epoch():
     def invalid_delivery(method, params):
         if method == "get_delivery_prices":
