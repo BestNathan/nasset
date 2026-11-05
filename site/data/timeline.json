@@ -225,6 +225,14 @@
         "price_return_pct": 0.0797,
         "annualized_cash_yield_pct": 4.163,
         "best_strategy": "Hold for Distributions"
+      },
+      {
+        "date": "2026-11-05",
+        "current_asset_value_index": 100.0897,
+        "total_value_index": 112.5558,
+        "price_return_pct": 0.0897,
+        "annualized_cash_yield_pct": 4.1592,
+        "best_strategy": "Hold for Distributions"
       }
     ],
     "tlt": [
@@ -450,6 +458,14 @@
         "total_value_index": 105.9207,
         "price_return_pct": -6.5338,
         "annualized_cash_yield_pct": 4.1591,
+        "best_strategy": "Hold for Distributions"
+      },
+      {
+        "date": "2026-11-05",
+        "current_asset_value_index": 94.2153,
+        "total_value_index": 106.6697,
+        "price_return_pct": -5.7847,
+        "annualized_cash_yield_pct": 4.1553,
         "best_strategy": "Hold for Distributions"
       }
     ],
@@ -677,6 +693,14 @@
         "price_return_pct": 17.6783,
         "annualized_cash_yield_pct": 1.0941,
         "best_strategy": "Hold for Distributions"
+      },
+      {
+        "date": "2026-11-05",
+        "current_asset_value_index": 117.3009,
+        "total_value_index": 120.5801,
+        "price_return_pct": 17.3009,
+        "annualized_cash_yield_pct": 1.0931,
+        "best_strategy": "Hold for Distributions"
       }
     ],
     "lqd": [
@@ -902,6 +926,14 @@
         "total_value_index": 115.9643,
         "price_return_pct": 2.3182,
         "annualized_cash_yield_pct": 4.557,
+        "best_strategy": "Hold for Distributions"
+      },
+      {
+        "date": "2026-11-05",
+        "current_asset_value_index": 103.0877,
+        "total_value_index": 116.7337,
+        "price_return_pct": 3.0877,
+        "annualized_cash_yield_pct": 4.5528,
         "best_strategy": "Hold for Distributions"
       }
     ],
@@ -1129,6 +1161,14 @@
         "price_return_pct": 0.7984,
         "annualized_cash_yield_pct": 5.4577,
         "best_strategy": "Hold for Distributions"
+      },
+      {
+        "date": "2026-11-05",
+        "current_asset_value_index": 100.7984,
+        "total_value_index": 117.1417,
+        "price_return_pct": 0.7984,
+        "annualized_cash_yield_pct": 5.4528,
+        "best_strategy": "Hold for Distributions"
       }
     ],
     "hyg": [
@@ -1354,6 +1394,14 @@
         "total_value_index": 121.7461,
         "price_return_pct": 3.8726,
         "annualized_cash_yield_pct": 5.9687,
+        "best_strategy": "Hold for Distributions"
+      },
+      {
+        "date": "2026-11-05",
+        "current_asset_value_index": 104.6013,
+        "total_value_index": 122.4747,
+        "price_return_pct": 4.6013,
+        "annualized_cash_yield_pct": 5.9633,
         "best_strategy": "Hold for Distributions"
       }
     ],
@@ -1581,6 +1629,14 @@
         "price_return_pct": 96.2132,
         "annualized_cash_yield_pct": 7.8893,
         "best_strategy": "Hold for Distributions"
+      },
+      {
+        "date": "2026-11-05",
+        "current_asset_value_index": 193.9334,
+        "total_value_index": 217.5796,
+        "price_return_pct": 93.9334,
+        "annualized_cash_yield_pct": 7.8821,
+        "best_strategy": "Hold for Distributions"
       }
     ],
     "ccb": [
@@ -1806,6 +1862,14 @@
         "total_value_index": 227.2649,
         "price_return_pct": 107.6176,
         "annualized_cash_yield_pct": 6.5551,
+        "best_strategy": "Hold for Distributions"
+      },
+      {
+        "date": "2026-11-05",
+        "current_asset_value_index": 206.0453,
+        "total_value_index": 225.6927,
+        "price_return_pct": 106.0453,
+        "annualized_cash_yield_pct": 6.5491,
         "best_strategy": "Hold for Distributions"
       }
     ],
@@ -2033,6 +2097,14 @@
         "price_return_pct": 49.5899,
         "annualized_cash_yield_pct": 6.6019,
         "best_strategy": "Hold for Distributions"
+      },
+      {
+        "date": "2026-11-05",
+        "current_asset_value_index": 149.2351,
+        "total_value_index": 169.0226,
+        "price_return_pct": 49.2351,
+        "annualized_cash_yield_pct": 6.5958,
+        "best_strategy": "Hold for Distributions"
       }
     ],
     "china_dividend": [
@@ -2258,6 +2330,14 @@
         "total_value_index": 141.922,
         "price_return_pct": 27.4812,
         "annualized_cash_yield_pct": 4.818,
+        "best_strategy": "Hold for Distributions"
+      },
+      {
+        "date": "2026-11-05",
+        "current_asset_value_index": 124.1273,
+        "total_value_index": 138.568,
+        "price_return_pct": 24.1273,
+        "annualized_cash_yield_pct": 4.8136,
         "best_strategy": "Hold for Distributions"
       }
     ],
@@ -2485,6 +2565,14 @@
         "price_return_pct": -5.1643,
         "annualized_cash_yield_pct": 6.0047,
         "best_strategy": "Hold for Distributions"
+      },
+      {
+        "date": "2026-11-05",
+        "current_asset_value_index": 96.3112,
+        "total_value_index": 114.2924,
+        "price_return_pct": -3.6888,
+        "annualized_cash_yield_pct": 5.9992,
+        "best_strategy": "Hold for Distributions"
       }
     ],
     "bizd": [
@@ -2710,6 +2798,14 @@
         "total_value_index": 109.9807,
         "price_return_pct": -20.1545,
         "annualized_cash_yield_pct": 10.0635,
+        "best_strategy": "Hold for Distributions"
+      },
+      {
+        "date": "2026-11-05",
+        "current_asset_value_index": 81.5196,
+        "total_value_index": 111.6549,
+        "price_return_pct": -18.4804,
+        "annualized_cash_yield_pct": 10.0543,
         "best_strategy": "Hold for Distributions"
       }
     ],
@@ -2937,6 +3033,14 @@
         "price_return_pct": 24.2448,
         "annualized_cash_yield_pct": 4.6207,
         "best_strategy": "Hold for Distributions"
+      },
+      {
+        "date": "2026-11-05",
+        "current_asset_value_index": 128.1941,
+        "total_value_index": 142.0309,
+        "price_return_pct": 28.1941,
+        "annualized_cash_yield_pct": 4.6165,
+        "best_strategy": "Hold for Distributions"
       }
     ],
     "sreit": [
@@ -3162,6 +3266,14 @@
         "total_value_index": 115.4896,
         "price_return_pct": -1.5013,
         "annualized_cash_yield_pct": 5.6688,
+        "best_strategy": "Hold for Distributions"
+      },
+      {
+        "date": "2026-11-05",
+        "current_asset_value_index": 100.4486,
+        "total_value_index": 117.4395,
+        "price_return_pct": 0.4486,
+        "annualized_cash_yield_pct": 5.6636,
         "best_strategy": "Hold for Distributions"
       }
     ],
@@ -3389,6 +3501,14 @@
         "price_return_pct": -14.2158,
         "annualized_cash_yield_pct": 4.3056,
         "best_strategy": "Hold for Distributions"
+      },
+      {
+        "date": "2026-11-05",
+        "current_asset_value_index": 87.796,
+        "total_value_index": 100.7011,
+        "price_return_pct": -12.204,
+        "annualized_cash_yield_pct": 4.3017,
+        "best_strategy": "Hold for Distributions"
       }
     ],
     "dlr": [
@@ -3614,6 +3734,14 @@
         "total_value_index": 150.5058,
         "price_return_pct": 39.1999,
         "annualized_cash_yield_pct": 3.7755,
+        "best_strategy": "Hold for Distributions"
+      },
+      {
+        "date": "2026-11-05",
+        "current_asset_value_index": 142.7755,
+        "total_value_index": 154.0814,
+        "price_return_pct": 42.7755,
+        "annualized_cash_yield_pct": 3.7721,
         "best_strategy": "Hold for Distributions"
       }
     ],
@@ -3841,6 +3969,14 @@
         "price_return_pct": 43.2893,
         "annualized_cash_yield_pct": 4.898,
         "best_strategy": "Hold for Distributions"
+      },
+      {
+        "date": "2026-11-05",
+        "current_asset_value_index": 141.9177,
+        "total_value_index": 148.2783,
+        "price_return_pct": 41.9177,
+        "annualized_cash_yield_pct": 4.8877,
+        "best_strategy": "Hold for Distributions"
       }
     ],
     "pld": [
@@ -4066,6 +4202,14 @@
         "total_value_index": 134.4134,
         "price_return_pct": 23.0153,
         "annualized_cash_yield_pct": 3.8063,
+        "best_strategy": "Hold for Distributions"
+      },
+      {
+        "date": "2026-11-05",
+        "current_asset_value_index": 125.1882,
+        "total_value_index": 136.5863,
+        "price_return_pct": 25.1882,
+        "annualized_cash_yield_pct": 3.8028,
         "best_strategy": "Hold for Distributions"
       }
     ],
@@ -4293,6 +4437,14 @@
         "price_return_pct": -31.6749,
         "annualized_cash_yield_pct": 4.5059,
         "best_strategy": "Hold for Distributions"
+      },
+      {
+        "date": "2026-11-05",
+        "current_asset_value_index": 68.4562,
+        "total_value_index": 81.9616,
+        "price_return_pct": -31.5438,
+        "annualized_cash_yield_pct": 4.5018,
+        "best_strategy": "Hold for Distributions"
       }
     ],
     "china_reit_water": [
@@ -4518,6 +4670,14 @@
         "total_value_index": 136.4846,
         "price_return_pct": 7.6979,
         "annualized_cash_yield_pct": 9.6043,
+        "best_strategy": "Hold for Distributions"
+      },
+      {
+        "date": "2026-11-05",
+        "current_asset_value_index": 106.7626,
+        "total_value_index": 135.5493,
+        "price_return_pct": 6.7626,
+        "annualized_cash_yield_pct": 9.5956,
         "best_strategy": "Hold for Distributions"
       }
     ],
@@ -4745,6 +4905,14 @@
         "price_return_pct": 46.9779,
         "annualized_cash_yield_pct": 6.8394,
         "best_strategy": "Hold for Distributions"
+      },
+      {
+        "date": "2026-11-05",
+        "current_asset_value_index": 145.4034,
+        "total_value_index": 163.4668,
+        "price_return_pct": 45.4034,
+        "annualized_cash_yield_pct": 6.8323,
+        "best_strategy": "Hold for Distributions"
       }
     ],
     "china_reit_toll": [
@@ -4970,6 +5138,14 @@
         "total_value_index": 126.5274,
         "price_return_pct": 11.0681,
         "annualized_cash_yield_pct": 5.1578,
+        "best_strategy": "Hold for Distributions"
+      },
+      {
+        "date": "2026-11-05",
+        "current_asset_value_index": 110.4098,
+        "total_value_index": 125.8691,
+        "price_return_pct": 10.4098,
+        "annualized_cash_yield_pct": 5.1531,
         "best_strategy": "Hold for Distributions"
       }
     ],
@@ -5197,6 +5373,14 @@
         "price_return_pct": 48.7087,
         "annualized_cash_yield_pct": 4.1603,
         "best_strategy": "Hold for Distributions"
+      },
+      {
+        "date": "2026-11-05",
+        "current_asset_value_index": 150.2265,
+        "total_value_index": 162.6846,
+        "price_return_pct": 50.2265,
+        "annualized_cash_yield_pct": 4.1565,
+        "best_strategy": "Hold for Distributions"
       }
     ],
     "amlp": [
@@ -5423,6 +5607,14 @@
         "price_return_pct": 21.3659,
         "annualized_cash_yield_pct": 8.9303,
         "best_strategy": "Hold for Distributions"
+      },
+      {
+        "date": "2026-11-05",
+        "current_asset_value_index": 118.0434,
+        "total_value_index": 144.7854,
+        "price_return_pct": 18.0434,
+        "annualized_cash_yield_pct": 8.9222,
+        "best_strategy": "Hold for Distributions"
       }
     ],
     "chongli_property": [
@@ -5644,6 +5836,14 @@
       },
       {
         "date": "2026-11-04",
+        "current_asset_value_index": 107.8266,
+        "total_value_index": 109.6066,
+        "price_return_pct": 7.8266,
+        "annualized_cash_yield_pct": 1.78,
+        "best_strategy": "Gross Rental Income"
+      },
+      {
+        "date": "2026-11-05",
         "current_asset_value_index": 107.8266,
         "total_value_index": 109.6066,
         "price_return_pct": 7.8266,
@@ -5875,6 +6075,14 @@
         "price_return_pct": 20.253,
         "annualized_cash_yield_pct": 7.846164,
         "best_strategy": "Cash-Secured Put"
+      },
+      {
+        "date": "2026-11-05",
+        "current_asset_value_index": 125.3643,
+        "total_value_index": 125.3643,
+        "price_return_pct": 25.3643,
+        "annualized_cash_yield_pct": 4.180469,
+        "best_strategy": "Cash-Secured Put"
       }
     ],
     "eth": [
@@ -6100,6 +6308,14 @@
         "total_value_index": 120.1803,
         "price_return_pct": 20.1803,
         "annualized_cash_yield_pct": 8.26681,
+        "best_strategy": "Cash-Secured Put"
+      },
+      {
+        "date": "2026-11-05",
+        "current_asset_value_index": 127.6409,
+        "total_value_index": 127.6409,
+        "price_return_pct": 27.6409,
+        "annualized_cash_yield_pct": 9.133458,
         "best_strategy": "Cash-Secured Put"
       }
     ],
@@ -6327,6 +6543,14 @@
         "price_return_pct": -1.8489,
         "annualized_cash_yield_pct": 2.804835,
         "best_strategy": "Cash-Secured Put"
+      },
+      {
+        "date": "2026-11-05",
+        "current_asset_value_index": 99.1659,
+        "total_value_index": 99.4102,
+        "price_return_pct": -0.8341,
+        "annualized_cash_yield_pct": 2.002769,
+        "best_strategy": "Cash-Secured Put"
       }
     ],
     "gld": [
@@ -6552,6 +6776,14 @@
         "total_value_index": 92.196,
         "price_return_pct": -7.804,
         "annualized_cash_yield_pct": 5.339931,
+        "best_strategy": "Cash-Secured Put"
+      },
+      {
+        "date": "2026-11-05",
+        "current_asset_value_index": 93.4801,
+        "total_value_index": 93.4801,
+        "price_return_pct": -6.5199,
+        "annualized_cash_yield_pct": 1.983281,
         "best_strategy": "Cash-Secured Put"
       }
     ]
