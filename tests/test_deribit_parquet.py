@@ -45,16 +45,18 @@ def test_index_part_groups_all_index_names():
     assert part_path("index_price", SLOT) == "deribit/index_price/2026/11/05/0400.parquet"
 
 
-def test_native_delivery_event_time_required():
-    with pytest.raises(ValueError, match="event_timestamp"):
+def test_native_delivery_calendar_date_required_without_invented_timestamp():
+    with pytest.raises(ValueError, match="event_date"):
         encode_part("delivery_price", [{"index_name": "btc_usd", "delivery_price": 70000}],
                     slot=SLOT, captured_at=CAPTURE)
     payload = encode_part(
         "delivery_price",
-        [{"index_name": "btc_usd", "event_timestamp": 1793865600000, "delivery_price": 70000.0}],
+        [{"index_name": "btc_usd", "event_date": "2026-11-04", "delivery_price": 70000.0}],
         slot=SLOT, captured_at=CAPTURE,
     )
-    assert pq.read_table(BytesIO(payload)).column("event_timestamp").to_pylist() == [1793865600000]
+    table = pq.read_table(BytesIO(payload))
+    assert table.column("event_date").to_pylist() == ["2026-11-04"]
+    assert "event_timestamp" not in table.column_names
 
 
 @pytest.mark.parametrize("dataset", ["option_chain", "index_price", "delivery_price",
