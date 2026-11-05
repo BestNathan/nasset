@@ -39,9 +39,15 @@ def test_live_batch_projects_exchange_fields_and_partitions_assets():
         config("option_chain", "index_price", "futures_curve"),
         DeribitClient(transport=fixture_transport), now,
     )
-    assert len(batch.parts) == 6  # 3 option assets + 2 futures assets + 1 index
+    assert len(batch.parts) == 7  # 6 Parquet parts + explicit unlisted ETH future coverage
     assert set(batch.datasets) == {"option_chain", "index_price", "futures_curve"}
+    assert batch.unlisted == (("futures_curve", "ETH"),)
     for path, payload in batch.parts.items():
+        if path.endswith(".json"):
+            assert json.loads(payload)["unlisted"] == [
+                {"dataset": "futures_curve", "underlying": "ETH", "listed_count": 0}
+            ]
+            continue
         assert path.endswith(".parquet")
         assert payload[:4] == payload[-4:] == b"PAR1"
         table = pq.read_table(BytesIO(payload))
@@ -93,7 +99,7 @@ def test_hourly_dvol_included_in_complete_live_batch():
         config("option_chain", "index_price", "futures_curve", "volatility_index"),
         DeribitClient(transport=transport), now,
     )
-    assert len(batch.parts) == 8
+    assert len(batch.parts) == 9  # plus auditable unlisted ETH future
     assert {x["currency"] for x in calls} == {"BTC", "ETH"}
     assert all(x["end_timestamp"] == int(slot.timestamp() * 1000) - 1 for x in calls)
     for asset in ("BTC", "ETH"):
@@ -208,7 +214,7 @@ def test_unlisted_paxg_option_is_recorded_in_atomic_hourly_coverage():
         _with_acknowledged_unlisted_paxg("option_chain", "index_price", "futures_curve"),
         DeribitClient(transport=_without_paxg_options), now,
     )
-    assert batch.unlisted == (("option_chain", "PAXG"),)
+    assert batch.unlisted == (("futures_curve", "ETH"), ("option_chain", "PAXG"))
     assert len(batch.parts) == 6  # BTC/ETH options, BTC/PAXG futures, index, coverage
     assert not any("/option_chain/PAXG/" in p for p in batch.parts)
     assert any("/futures_curve/PAXG/" in p for p in batch.parts)
@@ -216,7 +222,8 @@ def test_unlisted_paxg_option_is_recorded_in_atomic_hourly_coverage():
     document = json.loads(batch.parts[path])
     assert document["snapshot_slot_at"] == batch.slot.isoformat()
     assert document["unlisted"] == [
-        {"dataset": "option_chain", "underlying": "PAXG", "listed_count": 0}
+        {"dataset": "futures_curve", "underlying": "ETH", "listed_count": 0},
+        {"dataset": "option_chain", "underlying": "PAXG", "listed_count": 0},
     ]
     for path, payload in batch.parts.items():
         if path.endswith(".parquet"):
