@@ -121,12 +121,14 @@ class DeribitClient:
         later coverage policy, never silently reported as a complete snapshot.
         """
         kinds = tuple(k for k, on in (("option", include_options), ("future", include_futures)) if on)
-        if not kinds:
-            raise ValueError("at least one instrument kind is required")
-        catalog = self.instruments(kinds=kinds)
+        if not kinds and not include_indices:
+            raise ValueError("at least one dataset is required")
+        # Index-only collection still needs contract metadata to discover real
+        # price_index identifiers, but must not fetch any book summaries.
+        catalog = self.instruments(kinds=kinds or ("option", "future"))
         scope = set(underlyings)
         selected = {i["instrument_name"]: i for i in catalog
-                    if i.get("base_currency") in scope and i.get("kind") in kinds}
+                    if i.get("base_currency") in scope and (not kinds or i.get("kind") in kinds)}
         for asset in underlyings:
             if not any(i.get("base_currency") == asset for i in selected.values()):
                 raise DeribitError(f"no listed contracts for configured underlying {asset}")
@@ -156,6 +158,8 @@ class DeribitClient:
         options: list[dict[str, Any]] = []
         futures: list[dict[str, Any]] = []
         for name, instrument in sorted(selected.items()):
+            if not kinds:
+                continue
             row = {**instrument, **quotes[name]}
             # Metadata identity wins over potentially incomplete quote fields.
             row.update({k: instrument[k] for k in ("instrument_name", "kind", "base_currency",
