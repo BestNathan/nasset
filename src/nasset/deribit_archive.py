@@ -87,6 +87,15 @@ def parse_config(doc: Mapping[str, Any]) -> ArchiveConfig:
         selected = _symbols(spec.get("underlyings", list(underlyings)), f"{name}.underlyings")
         if not set(selected).issubset(underlyings):
             raise ValueError(f"{name}.underlyings must be within shared underlyings")
+        if "allow_unlisted" in spec:
+            if name not in {"option_chain", "futures_curve"}:
+                raise ValueError(f"{name}.allow_unlisted is only for listed derivative datasets")
+            raw_allow = spec["allow_unlisted"]
+            # [] is meaningful: no asset may be silently unlisted.
+            if not isinstance(raw_allow, list) or any(
+                not isinstance(asset, str) or asset not in selected for asset in raw_allow
+            ) or len(set(raw_allow)) != len(raw_allow):
+                raise ValueError(f"{name}.allow_unlisted must be unique configured underlying assets")
         if name in {"index_price", "delivery_price"}:
             index_names = spec.get("index_names")
             if index_names != "auto" and (not isinstance(index_names, list) or
