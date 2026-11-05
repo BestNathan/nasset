@@ -191,8 +191,10 @@ class DeribitClient:
                     raise DeribitError(f"delivery {index_name}: invalid native date format")
                 price = item["delivery_price"]
                 stamp = item["date"]
-                if stamp in events and events[stamp] != price:
-                    raise DeribitError(f"delivery {index_name}: conflicting event")
+                if stamp in events:
+                    if events[stamp] != price:
+                        raise DeribitError(f"delivery {index_name}: conflicting event")
+                    raise DeribitError(f"delivery {index_name}: duplicate event date across source pages")
                 events[stamp] = price
             offset += len(data)
             if offset == total:
