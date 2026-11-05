@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import re
 from dataclasses import dataclass
 from typing import Mapping
@@ -21,6 +22,9 @@ _EVENT_KEY_PATH = re.compile(
     r"[0-9]{4}/[0-9]{2}/[0-9]{2}/(?:[0-9]{10,16}|[0-9]{4}-[0-9]{2}-[0-9]{2})\.key$"
 )
 _EVENT_PREFIX = b"deribit-event-v1\n"
+_COVERAGE_PATH = re.compile(
+    r"^deribit/coverage/[0-9]{4}/[0-9]{2}/[0-9]{2}/[0-9]{4}\.json$"
+)
 _SLOT_PATH = re.compile(r"^deribit/slots/[0-9]{4}/[0-9]{2}/[0-9]{2}/[0-9]{4}\.receipt$")
 
 
@@ -114,6 +118,38 @@ class GitHubArchivePublisher:
         if not isinstance(payload, bytes) or not payload.startswith(SLOT_PREFIX) or len(payload) > 16384:
             raise ValueError(f"invalid UTC slot receipt payload: {path}")
 
+    @staticmethod
+    def _validate_coverage(path: str, payload: bytes) -> None:
+        if not _COVERAGE_PATH.fullmatch(path) or not payload or len(payload) > 16384:
+            raise ValueError(f"invalid coverage manifest path/size: {path}")
+        try:
+            data = json.loads(payload)
+            slot = data["snapshot_slot_at"]
+            entries = data["unlisted"]
+        except (ValueError, KeyError, TypeError) as exc:
+            raise ValueError(f"invalid coverage JSON: {path}") from exc
+        if (data.get("schema_version") != 1 or data.get("provider") != "deribit"
+                or not isinstance(slot, str)
+                or not slot.startswith(path.removeprefix("deribit/coverage/")
+                                       .removesuffix(".json")
+                                       .replace("/", "-")[:10])
+                or not isinstance(data.get("observed_at"), str)
+                or not isinstance(entries, list) or not entries):
+            raise ValueError(f"invalid coverage manifest schema: {path}")
+        seen = set()
+        for row in entries:
+            if (not isinstance(row, dict)
+                    or row.get("dataset") not in {"option_chain", "futures_curve"}
+                    or not isinstance(row.get("underlying"), str)
+                    or not re.fullmatch(r"[A-Z0-9]+", row["underlying"])
+                    or type(row.get("listed_count")) is not int
+                    or row["listed_count"] != 0):
+                raise ValueError(f"invalid unlisted capability record: {path}")
+            identity = (row["dataset"], row["underlying"])
+            if identity in seen:
+                raise ValueError(f"duplicate unlisted capability record: {path}")
+            seen.add(identity)
+
     def publish(self, parts: Mapping[str, bytes], *, branch: str = "market-data",
                 slot_receipt: tuple[str, bytes] | None = None) -> PublishResult:
         if branch != "market-data":
@@ -127,11 +163,16 @@ class GitHubArchivePublisher:
             if any(not path.endswith(suffix + ".parquet")
                    for path in parts if path.endswith(".parquet")):
                 raise ValueError("Parquet files must belong to the receipt UTC slot")
+            if any(not path.endswith(suffix + ".json")
+                   for path in parts if _COVERAGE_PATH.fullmatch(path)):
+                raise ValueError("coverage manifest must belong to the receipt UTC slot")
             if receipt_path in parts:
                 raise ValueError("receipt path must not appear in raw parts")
             parts = {**parts, receipt_path: receipt_payload}
         for path, payload in parts.items():
-            if not isinstance(path, str) or not (_PATH.fullmatch(path) or _EVENT_KEY_PATH.fullmatch(path) or _SLOT_PATH.fullmatch(path)):
+            if not isinstance(path, str) or not (_PATH.fullmatch(path) or _EVENT_KEY_PATH.fullmatch(path)
+                                                  or _SLOT_PATH.fullmatch(path)
+                                                  or _COVERAGE_PATH.fullmatch(path)):
                 raise ValueError(f"invalid archive path: {path!r}")
             if not isinstance(payload, bytes):
                 raise ValueError(f"invalid archive payload: {path}")
@@ -140,6 +181,8 @@ class GitHubArchivePublisher:
                     raise ValueError(f"invalid event key payload: {path}")
             elif _SLOT_PATH.fullmatch(path):
                 self._validate_receipt(path, payload)
+            elif _COVERAGE_PATH.fullmatch(path):
+                self._validate_coverage(path, payload)
             elif not payload.startswith(b"PAR1") or not payload.endswith(b"PAR1"):
                 raise ValueError(f"not a Parquet payload: {path}")
         if not any(path.endswith(".parquet") for path in parts):
