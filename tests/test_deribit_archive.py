@@ -100,3 +100,36 @@ def test_unlisted_policy_cannot_be_attached_to_index_price():
     raw["sources"]["deribit"]["datasets"]["index_price"]["allow_unlisted"] = ["PAXG"]
     with pytest.raises(ValueError, match="only for listed derivative"):
         parse_config(raw)
+
+
+def test_hourly_archive_workflow_is_explicitly_publish_gated():
+    import yaml
+
+    workflow = CONFIG.parents[1] / ".github" / "workflows" / "deribit-archive.yml"
+    # BaseLoader retains the literal 'on' key under YAML 1.1 rather than
+    # interpreting it as boolean True.
+    root = yaml.load(workflow.read_text(), Loader=yaml.BaseLoader)
+    assert root["on"]["schedule"] == [{"cron": "37 * * * *"}]
+    assert root["on"]["workflow_dispatch"]["inputs"]["publish"]["default"] == "false"
+    assert root["permissions"]["contents"] == "read"
+    jobs = root["jobs"]
+    assert set(jobs) == {"read-only-acceptance", "publish"}
+    read_only = jobs["read-only-acceptance"]
+    writer = jobs["publish"]
+    assert "DERIBIT_ARCHIVE_ENABLED" in read_only["if"]
+    assert "DERIBIT_ARCHIVE_ENABLED" in writer["if"]
+    assert "inputs.publish == true" in writer["if"]
+    assert writer["permissions"]["contents"] == "write"
+    assert writer["needs"] == "read-only-acceptance"
+    for name, job in jobs.items():
+        checkouts = [step for step in job["steps"] if step.get("uses", "").startswith("actions/checkout@")]
+        assert len(checkouts) == 1, name
+        assert checkouts[0]["with"] == {
+            "ref": "main", "fetch-depth": "1", "persist-credentials": "false",
+        }
+    assert "--publish" not in " ".join(
+        step.get("run", "") for step in read_only["steps"]
+    )
+    assert "--publish" in " ".join(
+        step.get("run", "") for step in writer["steps"]
+    )
