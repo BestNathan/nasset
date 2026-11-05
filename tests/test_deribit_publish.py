@@ -320,3 +320,55 @@ def test_receipt_ref_race_is_not_forced_or_retried_blindly():
     patches = [payload for method, path, payload in session.calls
                if method == "PATCH" and path == "/git/refs/heads/market-data"]
     assert len(patches) == 1 and patches[0]["force"] is False
+
+
+COVERAGE_PATH = "deribit/coverage/2026/11/05/0400.json"
+COVERAGE_BODY = {
+    "schema_version": 1,
+    "provider": "deribit",
+    "snapshot_slot_at": "2026-11-05T04:00:00+00:00",
+    "observed_at": "2026-11-05T04:37:03+00:00",
+    "unlisted": [{"dataset": "option_chain", "underlying": "PAXG", "listed_count": 0}],
+}
+COVERAGE_PAYLOAD = (json.dumps(COVERAGE_BODY, sort_keys=True) + "\n").encode()
+
+
+def test_unlisted_coverage_manifest_is_committed_atomically_with_parquet():
+    session = FakeSession()
+    result = publisher(session).publish(
+        {**PARTS, COVERAGE_PATH: COVERAGE_PAYLOAD},
+        slot_receipt=SLOT_RECEIPT,
+    )
+    assert result.created
+    tree = next(data for _, path, data in session.calls if path == "/git/trees")
+    assert {entry["path"] for entry in tree["tree"]} == {
+        *PARTS, COVERAGE_PATH, SLOT_RECEIPT[0],
+    }
+    assert sum(path == "/git/commits" for _, path, _ in session.calls) == 1
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda body: {**body, "snapshot_slot_at": "2026-11-05T05:00:00+00:00"},
+    lambda body: {**body, "unlisted": [{"dataset": "option_chain",
+                                       "underlying": "PAXG", "listed_count": 1}]},
+    lambda body: {**body, "unlisted": []},
+    lambda body: ["not-an-object"],
+])
+def test_invalid_coverage_manifest_is_rejected_before_git_mutation(mutate):
+    session = FakeSession()
+    data = json.dumps(mutate(COVERAGE_BODY)).encode()
+    with pytest.raises(ValueError, match="coverage|unlisted"):
+        publisher(session).publish({P1: PARTS[P1], COVERAGE_PATH: data},
+                                   slot_receipt=SLOT_RECEIPT)
+    assert session.calls == []
+
+
+def test_coverage_from_other_hour_rejected_by_slot_receipt():
+    session = FakeSession()
+    wrong_path = COVERAGE_PATH.replace("0400", "0500")
+    with pytest.raises(ValueError, match="coverage manifest"):
+        publisher(session).publish(
+            {P1: PARTS[P1], wrong_path: COVERAGE_PAYLOAD},
+            slot_receipt=SLOT_RECEIPT,
+        )
+    assert session.calls == []
