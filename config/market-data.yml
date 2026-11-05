@@ -20,6 +20,11 @@ sources:
       option_chain:
         enabled: true
         interval_hours: 1
+        # PAXG currently has a listed future but no active options.
+        # Verify the complete instrument catalog every run and persist a
+        # per-slot unlisted-capability manifest instead of inventing quotes.
+        # BTC/ETH missing contracts remain fatal.
+        allow_unlisted: [PAXG]
 
       index_price:
         enabled: true
