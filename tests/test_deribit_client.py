@@ -169,7 +169,7 @@ def test_http_exchange_error_rejected():
     ({"data": [[3600000, 10, 12, 9, 11]], "continuation": 123}, "truncated"),
     ({"data": [[3600000, 10, 12, 9]]}, "invalid OHLC"),
     ({"data": [[3600000, 10, 12, 9, 11], [3600000, 10, 12, 9, 11]]}, "duplicate"),
-    ({"data": [[7200000, 10, 12, 9, 11]]}, "out-of-window"),
+    ({"data": [[7200000, 10, 12, 9, 11]]}, "outside closed interval"),
     ({"data": []}, "no candles"),
     ({"unexpected": []}, "malformed"),
     ({"data": [[3600000, 10, float("nan"), 9, 11]]}, "invalid OHLC values"),
@@ -305,3 +305,18 @@ def test_delivery_prices_invalid_index_never_calls_source():
     with pytest.raises(ValueError, match="index_name"):
         client.delivery_prices("BTC/USD")
     assert calls == []
+
+
+
+def test_dvol_source_query_excludes_next_hour_boundary():
+    seen = []
+    def transport(method, params):
+        assert method == "get_volatility_index_data"
+        seen.append(params)
+        return {"data": [[3600000, 10.0, 11.0, 9.0, 10.5]], "continuation": None}
+    rows = DeribitClient(transport=transport).volatility_candles(
+        "BTC", start_ms=3600000, end_ms=7200000,
+    )
+    assert rows[0]["event_timestamp"] == 3600000
+    assert seen[0]["start_timestamp"] == 3600000
+    assert seen[0]["end_timestamp"] == 7199999
