@@ -40,10 +40,23 @@ class FakeSession:
             return Response(data={"object": {"sha": "tip"}}) if self.existing else Response(404)
         if path == "/git/commits/tip":
             return Response(data={"tree": {"sha": "tree0"}})
-        if path == "/git/trees/tree0?recursive=1":
-            return Response(data={"truncated": self.truncated, "tree": [
-                {"path": p, "sha": sha, "type": "blob"} for p, sha in self.paths.items()
-            ]})
+        if method == "GET" and path.startswith("/git/trees/"):
+            tree_sha = path.split("/")[-1]
+            # Simulate non-recursive Git tree API: each response contains only
+            # direct children. Synthetic SHA is the directory prefix.
+            prefix = "" if tree_sha == "tree0" else tree_sha.removeprefix("dir:")
+            children = {}
+            for full_path, sha in self.paths.items():
+                if not full_path.startswith(prefix):
+                    continue
+                remaining = full_path[len(prefix):]
+                first, sep, _ = remaining.partition("/")
+                if sep:
+                    children[first] = {"path": first, "type": "tree",
+                                       "sha": "dir:" + prefix + first + "/"}
+                else:
+                    children[first] = {"path": first, "type": "blob", "sha": sha}
+            return Response(data={"truncated": self.truncated, "tree": list(children.values())})
         if path == "/git/blobs" and method == "POST":
             import base64
             return Response(data={"sha": git_blob_sha(base64.b64decode(json["content"]))})
@@ -131,3 +144,34 @@ def test_invalid_batch_refused_before_api(parts):
     with pytest.raises(ValueError):
         publisher(session).publish(parts)
     assert session.calls == []
+
+
+def test_scales_without_recursive_tree_and_reuses_shared_prefixes():
+    # Many unrelated historical paths must never be traversed by a new slot.
+    existing = {
+        f"deribit/option_chain/BTC/2024/01/{day:02d}/0000.parquet": "old"
+        for day in range(1, 32)
+    }
+    session = FakeSession(existing=True, paths=existing)
+    result = publisher(session).publish(PARTS)
+    assert result.created
+    tree_gets = [path for method, path, _ in session.calls
+                 if method == "GET" and path.startswith("/git/trees/")]
+    assert tree_gets
+    assert all("?recursive" not in path for path in tree_gets)
+    assert len(tree_gets) == len(set(tree_gets))
+    assert len(tree_gets) < 15
+
+
+def test_missing_directory_does_not_fetch_descendants():
+    session = FakeSession(existing=True, paths={})
+    assert publisher(session).publish(PARTS).created
+    tree_gets = [path for method, path, _ in session.calls
+                 if method == "GET" and path.startswith("/git/trees/")]
+    assert tree_gets == ["/git/trees/tree0"]
+
+
+def test_existing_complete_retry_uses_only_nonrecursive_trees():
+    session = FakeSession(existing=True, paths={p: git_blob_sha(data) for p, data in PARTS.items()})
+    assert not publisher(session).publish(PARTS).created
+    assert all("?recursive" not in path for _, path, _ in session.calls)
