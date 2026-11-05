@@ -320,3 +320,26 @@ def test_dvol_source_query_excludes_next_hour_boundary():
     assert rows[0]["event_timestamp"] == 3600000
     assert seen[0]["start_timestamp"] == 3600000
     assert seen[0]["end_timestamp"] == 7199999
+
+
+def test_delivery_prices_rejects_repeated_page_without_silent_data_loss():
+    """A source ignoring offset must not be mistaken for complete pagination."""
+    calls = []
+    def repeating(method, params):
+        calls.append(params["offset"])
+        return {"data": [{"date": "2023-11-14", "delivery_price": 41000.5}],
+                "records_total": 2}
+
+    with pytest.raises(DeribitError, match="duplicate event date"):
+        DeribitClient(transport=repeating).delivery_prices("btc_usd", page_size=1)
+    assert calls == [0, 1]
+
+
+def test_delivery_prices_rejects_duplicate_date_within_page():
+    client = DeribitClient(transport=lambda method, params: {
+        "data": [{"date": "2023-11-14", "delivery_price": 41000.5},
+                 {"date": "2023-11-14", "delivery_price": 41000.5}],
+        "records_total": 2,
+    })
+    with pytest.raises(DeribitError, match="duplicate event date"):
+        client.delivery_prices("btc_usd", page_size=2)
