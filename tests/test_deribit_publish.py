@@ -233,7 +233,11 @@ def test_delivery_calendar_marker_is_a_supported_immutable_path():
     session = FakeSession(existing=True)
     result = publisher(session).publish({P1: PARTS[P1], key: blob})
     assert result.created
-    assert len([path for method, path, _ in session.calls if path == "/git/blobs"]) == 2
+    assert len([path for method, path, _ in session.calls if path == "/git/blobs"]) == 1
+    tree = next(data for _, path, data in session.calls if path == "/git/trees")
+    marker_entry = next(item for item in tree["tree"] if item["path"] == key)
+    assert marker_entry["content"] == blob.decode("utf-8")
+    assert "sha" not in marker_entry
     sha = git_blob_sha(blob)
     session = FakeSession(existing=True, paths={key: sha})
     assert publisher(session).existing((key,)) == {key: sha}
@@ -254,7 +258,8 @@ def test_slot_receipt_is_atomic_with_multiple_parquet_parts():
     assert set(item["path"] for item in tree["tree"]) == {
         *PARTS, SLOT_RECEIPT[0],
     }
-    assert len([x for x in session.calls if x[1] == "/git/blobs"]) == 3
+    assert len([x for x in session.calls if x[1] == "/git/blobs"]) == 2
+    assert next(x for x in tree["tree"] if x["path"] == SLOT_RECEIPT[0])["content"] == SLOT_RECEIPT[1].decode("utf-8")
     commit = next(body for _, path, body in session.calls if path == "/git/commits")
     assert commit["parents"] == []
 
@@ -372,3 +377,54 @@ def test_coverage_from_other_hour_rejected_by_slot_receipt():
             slot_receipt=SLOT_RECEIPT,
         )
     assert session.calls == []
+
+
+def test_large_history_batch_uses_inline_tree_objects():
+    """Event import does not emit one Git Blob API call per historical event."""
+    from nasset.deribit_publish import TREE_BATCH_SIZE
+
+    markers = {
+        f"deribit/event_keys/historical_volatility/BTC/2023/11/14/{1700000000000 + i}.key":
+        EVENT_BLOB for i in range(2 * TREE_BATCH_SIZE + 1)
+    }
+    session = FakeSession()
+    result = publisher(session).publish({P1: PARTS[P1], **markers})
+    assert result.created and result.commit_sha == "newcommit"
+    trees = [data for method, path, data in session.calls
+             if method == "POST" and path == "/git/trees"]
+    assert [len(data["tree"]) for data in trees] == [TREE_BATCH_SIZE, TREE_BATCH_SIZE, 2]
+    assert "base_tree" not in trees[0]
+    assert [t["base_tree"] for t in trees[1:]] == ["tree1", "tree1"]
+    assert all("content" in e and "sha" not in e for t in trees for e in t["tree"]
+               if e["path"].endswith(".key"))
+    assert sum(method == "POST" and path == "/git/blobs"
+               for method, path, _ in session.calls) == 1
+    assert sum(method == "POST" and path == "/git/commits"
+               for method, path, _ in session.calls) == 1
+    assert sum(method == "POST" and path == "/git/refs"
+               for method, path, _ in session.calls) == 1
+
+
+def test_candidate_tree_failure_never_publishes_archive_ref():
+    from nasset.deribit_publish import TREE_BATCH_SIZE
+
+    class RejectSecondTree(FakeSession):
+        def request(self, method, url, json=None, timeout=None):
+            if method == "POST" and url.endswith("/git/trees"):
+                prior = sum(action == "POST" and path == "/git/trees"
+                            for action, path, _ in self.calls)
+                if prior == 1:
+                    self.calls.append((method, "/git/trees", json))
+                    return Response(409)
+            return super().request(method, url, json=json, timeout=timeout)
+
+    markers = {
+        f"deribit/event_keys/historical_volatility/BTC/2023/11/14/{1700000000000 + i}.key":
+        EVENT_BLOB for i in range(TREE_BATCH_SIZE + 1)
+    }
+    session = RejectSecondTree(existing=True)
+    with pytest.raises(PublishConflict):
+        publisher(session).publish({P1: PARTS[P1], **markers})
+    assert not any(method == "PATCH" for method, _, _ in session.calls)
+    assert not any(method == "POST" and path == "/git/commits"
+                   for method, path, _ in session.calls)
