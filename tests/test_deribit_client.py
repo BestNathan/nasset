@@ -172,6 +172,11 @@ def test_http_exchange_error_rejected():
     ({"data": [[7200000, 10, 12, 9, 11]]}, "out-of-window"),
     ({"data": []}, "no candles"),
     ({"unexpected": []}, "malformed"),
+    ({"data": [[3600000, 10, float("nan"), 9, 11]]}, "invalid OHLC values"),
+    ({"data": [[3600000, 10, float("inf"), 9, 11]]}, "invalid OHLC values"),
+    ({"data": [[3600000, 10, 8, 9, 11]]}, "invalid OHLC values"),
+    ({"data": [[3600000, 10, 12, 11, 11]]}, "invalid OHLC values"),
+    ({"data": [[3600000, -1, 12, 0, 11]]}, "invalid OHLC values"),
 ])
 def test_dvol_rejects_invalid_or_incomplete_candles(payload, reason):
     client = DeribitClient(transport=lambda method, params: payload)
