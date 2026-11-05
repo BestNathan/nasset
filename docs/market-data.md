@@ -255,3 +255,28 @@ or enabling any production `--publish`/hourly schedule. Even successful
 live output does not by itself prove real Git Data API append/race behavior,
 full historical-delivery pagination, or long-term object-store growth; those
 remain separate acceptance gates.
+
+
+#### Live contract finding and partial measurement policy (2026-11-05)
+
+The first genuinely live, **read-only** contract run
+[42057233650](https://github.com/BestNathan/nasset/actions/runs/42057233650)
+reported `PAXG: no option instruments listed` when filtering the returned
+`get_instruments(currency=any,kind=option)` catalog by the actual
+`base_currency`. This is a source-capability observation for that run, **not**
+proof PAXG options can never be offered. We must not invent a PAXG option
+chain, silently relabel USDC contracts as PAXG or declare the full configured
+dataset complete.
+
+The probe now reports blocking capability gaps explicitly, and can measure
+available underlying subsets in memory while leaving overall contract status
+**blocked** (nonzero exit code). This gives a reproducible BTC/ETH size
+baseline without misrepresenting it as BTC/ETH/PAXG completeness. Missing
+futures are reported separately as product absence. It still performs no Git
+Data API mutation and can never initialize the orphan archive.
+
+Before activation, confirm actual index-name coverage, whether PAXG has
+currently listed option/future instruments, how `is_active=false` catalog
+entries relate to book summaries, and whether the configured product scope
+must change. Changes to that scope require explicit acceptance evidence and
+an updated config, not a fabricated historical record.
