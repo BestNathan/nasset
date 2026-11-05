@@ -14,6 +14,11 @@ from typing import Mapping
 import requests
 
 _PATH = re.compile(r"^deribit/[a-z_]+/(?:[A-Z0-9]+/)?[0-9]{4}/[0-9]{2}/[0-9]{2}/[0-9]{4}\.parquet$")
+_EVENT_KEY_PATH = re.compile(
+    r"^deribit/event_keys/(?:historical_volatility/[A-Z0-9]+|delivery_price/[a-z0-9_]+)/"
+    r"[0-9]{4}/[0-9]{2}/[0-9]{2}/[0-9]{10,16}\.key$"
+)
+_EVENT_PREFIX = b"deribit-event-v1\n"
 
 
 class PublishConflict(RuntimeError):
@@ -56,16 +61,39 @@ class GitHubArchivePublisher:
         response.raise_for_status()
         return response.json()
 
+    def existing(self, paths: tuple[str, ...]) -> dict[str, str]:
+        """Read only Git tree SHAs of requested immutable event-key paths.
+
+        Missing orphan ref means no historical identities exist yet. This is
+        read-only and never retrieves historical Parquet contents.
+        """
+        if any(not _EVENT_KEY_PATH.fullmatch(path) for path in paths):
+            raise ValueError("invalid incremental event-key path")
+        if not paths:
+            return {}
+        ref = self._api("GET", "/git/ref/heads/market-data", missing_ok=True)
+        if ref is None:
+            return {}
+        commit = self._api("GET", f"/git/commits/{ref['object']['sha']}")
+        return self._existing_paths(commit["tree"]["sha"], paths)
+
     def publish(self, parts: Mapping[str, bytes], *, branch: str = "market-data") -> PublishResult:
         if branch != "market-data":
             raise ValueError("only market-data orphan branch is supported")
         if not parts:
             raise ValueError("cannot publish empty batch")
         for path, payload in parts.items():
-            if not isinstance(path, str) or not _PATH.fullmatch(path):
+            if not isinstance(path, str) or not (_PATH.fullmatch(path) or _EVENT_KEY_PATH.fullmatch(path)):
                 raise ValueError(f"invalid archive path: {path!r}")
-            if not isinstance(payload, bytes) or not payload.startswith(b"PAR1") or not payload.endswith(b"PAR1"):
+            if not isinstance(payload, bytes):
+                raise ValueError(f"invalid archive payload: {path}")
+            if _EVENT_KEY_PATH.fullmatch(path):
+                if not payload.startswith(_EVENT_PREFIX) or len(payload) > 512:
+                    raise ValueError(f"invalid event key payload: {path}")
+            elif not payload.startswith(b"PAR1") or not payload.endswith(b"PAR1"):
                 raise ValueError(f"not a Parquet payload: {path}")
+        if not any(path.endswith(".parquet") for path in parts):
+            raise ValueError("event markers require a Parquet part in the same batch")
 
         names = tuple(sorted(parts))
         ref = self._api("GET", "/git/ref/heads/market-data", missing_ok=True)
