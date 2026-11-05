@@ -1,5 +1,5 @@
-# Archive configuration (design only; collector/workflow not yet deployed).
-# Issue: https://github.com/BestNathan/nasset/issues/6
+# Market-data archive configuration (target design; collector not yet deployed).
+# Reference: docs/market-data.md and GitHub issue #6
 version: 1
 
 storage:
@@ -11,48 +11,52 @@ storage:
 sources:
   deribit:
     enabled: true
-    # Shared base/underlying asset scope, NOT API settlement currency.
-    # Adding PAXG here extends enabled datasets without code changes.
-    underlyings: [BTC, ETH]
+    # Underlying/base assets, NOT the API settlement currency.
+    # PAXG derivatives are discoverable; skip unavailable per-dataset products
+    # only after recording explicit capability/coverage status.
+    underlyings: [BTC, ETH, PAXG]
     datasets:
+      # Hourly current-market snapshots, taken at minute 37 UTC.
       option_chain:
         enabled: true
-        interval_hours: 4
+        interval_hours: 1
 
-      # Index price is a separate small snapshot dataset.
-      # Auto discovers the exact price index names actually referenced
-      # by listed instruments, cross-checking supported index names.
-      # Never assume BTC -> btc_usd only: btc_usdc may also be relevant.
       index_price:
         enabled: true
-        interval_hours: 4
+        interval_hours: 1
+        # Discover full names actually referenced by live instruments
+        # and cross-check Deribit-supported names (e.g., btc_usd, btc_usdc).
         index_names: auto
 
-      # Expiry settlement events are NOT periodic live price snapshots.
-      # The collector should store only newly discovered delivery records.
+      # Record only new, immutable native settlement events; no need to
+      # resave historical settlement series every hour.
       delivery_price:
         enabled: true
         interval_hours: 24
         index_names: auto
 
-      # Follow-up datasets; documented but not enabled in first delivery.
-      # DVOL / historical volatility coverage is instrument-dependent;
-      # this allowlist must not auto-expand when PAXG is added above.
+      # P1: Deribit DVOL is only requested for explicitly supported assets.
+      # PAXG is NOT automatically added to the DVOL series.
       volatility_index:
-        enabled: false
-        interval_hours: 4
+        enabled: true
+        interval_hours: 1
         underlyings: [BTC, ETH]
         resolution: "3600"
 
+      # Poll the source daily, persist only new source-timestamped points.
+      # Do not infer PAXG support from the common asset universe.
       historical_volatility:
-        enabled: false
+        enabled: true
         interval_hours: 24
         underlyings: [BTC, ETH]
 
+      # Discover actual listed futures/perpetual contracts for all
+      # configured underlyings, including PAXG where available.
       futures_curve:
-        enabled: false
-        interval_hours: 4
+        enabled: true
+        interval_hours: 1
 
+      # P2: separate future scope; disabled by default.
       funding_rate:
         enabled: false
         interval_hours: 8
