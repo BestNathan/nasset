@@ -13,12 +13,15 @@ from typing import Mapping
 
 import requests
 
+from .deribit_slot import SLOT_PREFIX
+
 _PATH = re.compile(r"^deribit/[a-z_]+/(?:[A-Z0-9]+/)?[0-9]{4}/[0-9]{2}/[0-9]{2}/[0-9]{4}\.parquet$")
 _EVENT_KEY_PATH = re.compile(
     r"^deribit/event_keys/(?:historical_volatility/[A-Z0-9]+|delivery_price/[a-z0-9_]+)/"
     r"[0-9]{4}/[0-9]{2}/[0-9]{2}/(?:[0-9]{10,16}|[0-9]{4}-[0-9]{2}-[0-9]{2})\.key$"
 )
 _EVENT_PREFIX = b"deribit-event-v1\n"
+_SLOT_PATH = re.compile(r"^deribit/slots/[0-9]{4}/[0-9]{2}/[0-9]{2}/[0-9]{4}\.receipt$")
 
 
 class PublishConflict(RuntimeError):
@@ -85,19 +88,58 @@ class GitHubArchivePublisher:
         commit = self._api("GET", f"/git/commits/{ref['object']['sha']}")
         return self._existing_paths(commit["tree"]["sha"], paths)
 
-    def publish(self, parts: Mapping[str, bytes], *, branch: str = "market-data") -> PublishResult:
+    def completed_slot(self, receipt: tuple[str, bytes]) -> bool:
+        """Check exact due-slot completion without fetching stored Parquet blobs.
+
+        A changed due configuration is a hard conflict, not a reason to
+        overwrite or silently accept an incompatible historical slot.
+        """
+        path, payload = receipt
+        self._validate_receipt(path, payload)
+        ref = self._api("GET", "/git/ref/heads/market-data", missing_ok=True)
+        if ref is None:
+            return False
+        commit = self._api("GET", f"/git/commits/{ref['object']['sha']}")
+        existing = self._existing_paths(commit["tree"]["sha"], (path,))
+        if path not in existing:
+            return False
+        if existing[path] != git_blob_sha(payload):
+            raise PublishConflict(f"UTC slot already published with different due config: {path}")
+        return True
+
+    @staticmethod
+    def _validate_receipt(path: str, payload: bytes) -> None:
+        if not isinstance(path, str) or not _SLOT_PATH.fullmatch(path):
+            raise ValueError(f"invalid UTC slot receipt path: {path!r}")
+        if not isinstance(payload, bytes) or not payload.startswith(SLOT_PREFIX) or len(payload) > 16384:
+            raise ValueError(f"invalid UTC slot receipt payload: {path}")
+
+    def publish(self, parts: Mapping[str, bytes], *, branch: str = "market-data",
+                slot_receipt: tuple[str, bytes] | None = None) -> PublishResult:
         if branch != "market-data":
             raise ValueError("only market-data orphan branch is supported")
         if not parts:
             raise ValueError("cannot publish empty batch")
+        if slot_receipt is not None:
+            receipt_path, receipt_payload = slot_receipt
+            self._validate_receipt(receipt_path, receipt_payload)
+            suffix = receipt_path.removeprefix("deribit/slots/").removesuffix(".receipt")
+            if any(not path.endswith(suffix + ".parquet")
+                   for path in parts if path.endswith(".parquet")):
+                raise ValueError("Parquet files must belong to the receipt UTC slot")
+            if receipt_path in parts:
+                raise ValueError("receipt path must not appear in raw parts")
+            parts = {**parts, receipt_path: receipt_payload}
         for path, payload in parts.items():
-            if not isinstance(path, str) or not (_PATH.fullmatch(path) or _EVENT_KEY_PATH.fullmatch(path)):
+            if not isinstance(path, str) or not (_PATH.fullmatch(path) or _EVENT_KEY_PATH.fullmatch(path) or _SLOT_PATH.fullmatch(path)):
                 raise ValueError(f"invalid archive path: {path!r}")
             if not isinstance(payload, bytes):
                 raise ValueError(f"invalid archive payload: {path}")
             if _EVENT_KEY_PATH.fullmatch(path):
                 if not payload.startswith(_EVENT_PREFIX) or len(payload) > 512:
                     raise ValueError(f"invalid event key payload: {path}")
+            elif _SLOT_PATH.fullmatch(path):
+                self._validate_receipt(path, payload)
             elif not payload.startswith(b"PAR1") or not payload.endswith(b"PAR1"):
                 raise ValueError(f"not a Parquet payload: {path}")
         if not any(path.endswith(".parquet") for path in parts):
@@ -127,6 +169,15 @@ class GitHubArchivePublisher:
         # Walk only the directory prefixes of requested parts. Recursive trees
         # eventually truncate in a long-lived archive and must not be used.
         paths = self._existing_paths(base_tree, names)
+        if slot_receipt is not None and receipt_path in paths:
+            if paths[receipt_path] != git_blob_sha(receipt_payload):
+                raise PublishConflict("UTC slot was already completed with a different configuration")
+            if not all(path in paths for path in names):
+                raise PublishConflict("UTC slot receipt exists but requested archive paths are absent")
+            # Receipt is an atomic commit marker. The same config and paths
+            # represent an already published slot even if a later capture
+            # produces different Parquet bytes and timestamps.
+            return PublishResult(tip, False, names)
         matches = [path for path in names if paths.get(path) == git_blob_sha(parts[path])]
         if len(matches) == len(names):
             return PublishResult(tip, False, names)
