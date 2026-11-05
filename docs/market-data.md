@@ -100,6 +100,15 @@ For delivery events store `index_name`, native event date/time, native delivery 
 - **Rolling historical retention is explicitly deferred.** Do not squash/amend/rebase/force-push, delete snapshots or auto-GC as part of this change. The future proposal must compare (a) all-hourly retention, (b) immutable tiered data rollups and yearly sealed manifests, and (c) annual repository/archive split or external cold storage while preserving raw auditability and stable historical references.
 - An **aggregated daily/weekly Parquet** cannot safely replace raw hourly files until the aggregation and sampling semantics, preservation of native timestamps, reproducible manifests/checksums, migration and recovery tests, and actual Git storage reclamation are independently validated. Compaction in the working tree alone does not free Git commit history.
 
+## GitHub publisher implementation (first increment)
+
+- `src/nasset/deribit_publish.py` implements a batch publisher using Git Data API only: create blobs, create tree, create commit, and advance `refs/heads/market-data`. First publish creates a zero-parent root commit; subsequent commits use the current tip as sole parent.
+- Before creating any objects on an existing branch, the publisher reads the **tree metadata only** (not Parquet blobs) and compares Git blob SHA-1 values for every target file. Complete identical batches are no-ops; partial or conflicting immutable paths are rejected. Truncated tree listings are explicitly rejected rather than trusted.
+- Ref update uses `force=false`. A concurrent update can reject the fast-forward; the caller must re-read the branch and retry the whole batch. The publisher itself does not silently retry an uncertain ref outcome.
+- `tests/test_deribit_publish.py` uses a fake HTTP session to verify orphan initialization, atomic one-commit batches, idempotent replay, partial/conflicting slots, truncated trees, invalid payloads and ref races.
+- **Not yet wired into a collector or workflow**. A future orchestration step must ensure every due dataset and configured symbol is complete *before* calling `publish`, and must reconcile event-level incremental deduplication separately from per-slot path immutability.
+- Current implementation requests a recursive Git tree for path checking. This avoids blob downloads but may become inefficient or truncated as the archive grows. Before large-scale deployment, replace it with targeted path-tree traversal or a compact immutable manifest/index, with explicit correctness tests.
+
 ## Validation and consumption
 
 - Test BTC/ETH/PAXG from common configuration; include options across multiple settlement currencies, the PAXG futures/option listing behavior and multiple index names per base. Verify DVOL/HV remain BTC/ETH-only unless support is explicitly confirmed.
