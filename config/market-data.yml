@@ -1,4 +1,5 @@
-# Market-data archival plan (issue #6); collector/workflow not deployed yet.
+# Archive configuration (design only; collector/workflow not yet deployed).
+# Issue: https://github.com/BestNathan/nasset/issues/6
 version: 1
 
 storage:
@@ -10,13 +11,48 @@ storage:
 sources:
   deribit:
     enabled: true
+    # Shared base/underlying asset scope, NOT API settlement currency.
+    # Adding PAXG here extends enabled datasets without code changes.
+    underlyings: [BTC, ETH]
     datasets:
       option_chain:
         enabled: true
-        # Must be a positive divisor of 24 in v1 (1, 2, 3, 4, 6, 8, 12, 24).
-        # The future scheduler ticks hourly at UTC minute 37, and only collects
-        # when the current UTC hour is divisible by interval_hours.
         interval_hours: 4
-        # Base/underlying currencies, NOT Deribit settlement currency query values.
-        # To add gold options: [BTC, ETH, PAXG]
+
+      # Index price is a separate small snapshot dataset.
+      # Auto discovers the exact price index names actually referenced
+      # by listed instruments, cross-checking supported index names.
+      # Never assume BTC -> btc_usd only: btc_usdc may also be relevant.
+      index_price:
+        enabled: true
+        interval_hours: 4
+        index_names: auto
+
+      # Expiry settlement events are NOT periodic live price snapshots.
+      # The collector should store only newly discovered delivery records.
+      delivery_price:
+        enabled: true
+        interval_hours: 24
+        index_names: auto
+
+      # Follow-up datasets; documented but not enabled in first delivery.
+      # DVOL / historical volatility coverage is instrument-dependent;
+      # this allowlist must not auto-expand when PAXG is added above.
+      volatility_index:
+        enabled: false
+        interval_hours: 4
         underlyings: [BTC, ETH]
+        resolution: "3600"
+
+      historical_volatility:
+        enabled: false
+        interval_hours: 24
+        underlyings: [BTC, ETH]
+
+      futures_curve:
+        enabled: false
+        interval_hours: 4
+
+      funding_rate:
+        enabled: false
+        interval_hours: 8
