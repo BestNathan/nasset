@@ -20,9 +20,11 @@ def test_hourly_scope_and_daily_incremental_sources():
     }
     for name in ("option_chain", "index_price", "volatility_index", "futures_curve"):
         assert all_sources[name].interval_hours == 1
-    assert all_sources["option_chain"].underlyings == ("BTC", "ETH", "PAXG")
+    assert all_sources["option_chain"].underlyings == ("BTC", "ETH")
+    assert all_sources["index_price"].underlyings == ("BTC", "ETH", "PAXG")
+    assert all_sources["delivery_price"].underlyings == ("BTC", "ETH", "PAXG")
     assert all_sources["futures_curve"].underlyings == ("BTC", "ETH", "PAXG")
-    assert all_sources["option_chain"].options["allow_unlisted"] == ["PAXG"]
+    assert "allow_unlisted" not in all_sources["option_chain"].options
     assert all_sources["volatility_index"].underlyings == ("BTC", "ETH")
     assert all_sources["historical_volatility"].underlyings == ("BTC", "ETH")
 
