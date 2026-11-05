@@ -96,7 +96,7 @@ For delivery events store `index_name`, native event date/time, native delivery 
 
 - The hourly DVOL adapter requests Deribit's `get_volatility_index_data` for the **last fully completed UTC hour** `[slot-1h, slot)`, not a partial candle for the current hour.
 - Preserve each native candle timestamp and OHLC in a typed `volatility_index/BTC|ETH/YYYY/MM/DD/HH00.parquet` part; `snapshot_slot_at` identifies when the collector archived the closed candle, while `event_timestamp` identifies the market observation.
-- A missing candle, malformed response, duplicate/out-of-window event or pagination continuation fails the entire due batch. PAXG remains outside the DVOL allowlist until Deribit support is verified. Historical volatility and finalized delivery-event REST adapters now exist, but event-level incremental filtering, complete batch orchestration and live contract verification are not implemented; the full default configuration still fails closed.
+- A missing candle, malformed response, duplicate/out-of-window event or pagination continuation fails the entire due batch. PAXG remains outside the DVOL allowlist until Deribit support is verified. Historical volatility and finalized delivery-event REST adapters now feed the common batch preparation with immutable native-event markers. Live API contract verification and scheduled collection are still incomplete; production remains disabled.
 - Offline fixture tests cover DVOL-only requests, the combined live batch, and failure semantics. Do not claim a live Deribit contract test or production readiness from these fixtures.
 
 ## Capacity and future rolling policy (design only)
@@ -113,7 +113,7 @@ For delivery events store `index_name`, native event date/time, native delivery 
 - Before creating any objects on an existing branch, the publisher reads the **tree metadata only** (not Parquet blobs) and compares Git blob SHA-1 values for every target file. Complete identical batches are no-ops; partial or conflicting immutable paths are rejected. Truncated tree listings are explicitly rejected rather than trusted.
 - Ref update uses `force=false`. A concurrent update can reject the fast-forward; the caller must re-read the branch and retry the whole batch. The publisher itself does not silently retry an uncertain ref outcome.
 - `tests/test_deribit_publish.py` uses a fake HTTP session to verify orphan initialization, atomic one-commit batches, idempotent replay, partial/conflicting slots, truncated trees, invalid payloads and ref races.
-- **Not yet wired into a collector or workflow**. A future orchestration step must ensure every due dataset and configured symbol is complete *before* calling `publish`, and must reconcile event-level incremental deduplication separately from per-slot path immutability.
+- **Wired into a manual, dry-run-first collector, but NOT a scheduled workflow**. All due data and event identities are validated before handing one batch to `publish`; live source verification remains mandatory.
 - Current implementation resolves only target paths via non-recursive Git tree traversal and caches shared prefixes; it never requests the entire historical recursive tree. Keep monitoring per-directory tree size and Git object growth.
 
 ## Finalized delivery-price REST pagination (implementation in PR #7)
@@ -131,3 +131,56 @@ For delivery events store `index_name`, native event date/time, native delivery 
 - Keep deployment gated until a real API contract test, end-to-end Git publish fixture and artifact-size measurement are successful.
 
 Full implementation acceptance: [issue #6](https://github.com/BestNathan/nasset/issues/6).
+
+
+## Historical event-key ledger and manual collector (PR #7 implementation)
+
+Daily `historical_volatility` (BTC/ETH) and finalized `delivery_price`
+(exact Deribit index name) polls must not duplicate the same native event on
+each retry or later date. Their poll slot and event timestamp are independent.
+
+- Each observed event is identified by `dataset + native asset/index name +
+  event_timestamp`. A deterministic, tiny `deribit-event-v1` record also
+  includes the native numeric value, so a source revision to an already
+  archived event is detected as a **conflict**, not silently overwritten.
+- Immutable marker paths reside on **the same orphan `market-data` ref**:
+  `deribit/event_keys/historical_volatility/BTC/YYYY/MM/DD/<event_ms>.key`
+  and `deribit/event_keys/delivery_price/btc_usd/YYYY/MM/DD/<event_ms>.key`.
+  The path date is the **native event UTC date**, not the daily poll date.
+- For each historical dataset, the collector asks the Git publisher for the
+  exact candidate marker paths. It checks only the Git tree SHAs and never
+  downloads historical Parquet blob contents. Matches are skipped; changed
+  event values abort the entire batch; unseen events are written into the
+  current UTC poll-slot Parquet. Empty increment means **zero new files** and
+  no commit if the run contains only event datasets.
+- New marker blobs and due Parquet parts enter **the same tree and commit**.
+  A concurrent ref update or collision must fail safely; retry must rebuild
+  and re-evaluate the entire batch. No force updates, repairs, backfilled
+  changes to immutable parts, or mutable global watermark.
+- This ledger has additional Git tree entries/objects. Monitor event-key count,
+  per-dataset compressed bytes, and repository size trend as well as tree costs.
+  No event-key compaction or history rewrites in v1.
+- If a new event is discovered by rerunning an **already published** UTC
+  slot, its existing immutable Parquet part is never appended or replaced.
+  A later due poll can archive the delayed event in its **new** slot.
+  Conflicting same-slot retries fail rather than mutate historical files.
+
+The unscheduled entry point is:
+
+`python -m nasset.deribit_collect --config config/market-data.yml --repository BestNathan/nasset`
+
+It requires `GITHUB_TOKEN` to read Git tree metadata, defaults to **dry run**,
+and emits JSON with due datasets, per-dataset Parquet row/part counts,
+compressed bytes, event-key count, total batch bytes, and GitHub repository
+size in KiB (a cross-ref estimate, not per-branch isolation). A capacity
+review is flagged at 3 GiB. Explicit `--publish` appends one batch using Git
+Data API; it is **not** enabled in a scheduled workflow. Never use
+`--publish` against production until real API semantics and source
+availability are verified. Do not expose token values in logs.
+
+Offline tests cover replay without writes, late arrivals, conflicting values,
+combined snapshot/history batches, whole-batch failure, and atomic
+marker+Parquet publication. These tests do not validate Deribit's *live* PAXG
+contract listings, index discovery completeness, settlement `date` units,
+`records_total` pagination behavior, real compression sizing, or Git archive
+growth. Those must be verified before enabling the hourly workflow.
