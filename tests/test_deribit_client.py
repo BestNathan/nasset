@@ -343,3 +343,33 @@ def test_delivery_prices_rejects_duplicate_date_within_page():
     })
     with pytest.raises(DeribitError, match="duplicate event date"):
         client.delivery_prices("btc_usd", page_size=2)
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf"), -1.0, True, "100"])
+def test_index_price_rejects_nonfinite_or_non_numeric_source_values(bad):
+    def transport(method, params):
+        if method == "get_index_price":
+            return {"index_price": bad, "estimated_delivery_price": 99.9}
+        return fixture_transport(method, params)
+    with pytest.raises(DeribitError, match="invalid result"):
+        DeribitClient(transport=transport).snapshot(("BTC",), include_futures=False)
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), -1.0, True, "100"])
+def test_estimated_delivery_price_rejects_invalid_source_values(bad):
+    def transport(method, params):
+        if method == "get_index_price":
+            return {"index_price": 100.0, "estimated_delivery_price": bad}
+        return fixture_transport(method, params)
+    with pytest.raises(DeribitError, match="invalid estimated delivery price"):
+        DeribitClient(transport=transport).snapshot(("BTC",), include_futures=False)
+
+
+def test_missing_estimated_delivery_price_remains_nullable():
+    def transport(method, params):
+        if method == "get_index_price":
+            return {"index_price": 100.0}
+        return fixture_transport(method, params)
+    result = DeribitClient(transport=transport).snapshot(("BTC",), include_futures=False)
+    assert result.indices
+    assert all("estimated_delivery_price" not in row for row in result.indices)
