@@ -47,6 +47,14 @@ References:
 
 The 2026-11-05 live Deribit probe returned **zero listed PAXG options**, despite listing one PAXG future and the `paxg_usdc` index. A missing market product is **not** an API failure, but it must never be confused with an incomplete quote response.
 
+**Verified product lifecycle (not an API discovery bug):** Deribit announced PAXG options on 2024-12-03, then a Deribit notice reposted on 2025-07-03 said no PAXG option expiry or PAXG dated future would be listed beyond **2025-12-25**. This explains the zero current option listings in November 2026. Deribit's current Coinbase Crypto Index methodology lists assets with Deribit options (BTC, ETH, SOL, XRP, HYPE, AVAX, TRX) and excludes PAXG. The retained PAXG future/index is **not evidence of an active PAXG option chain**; Deribit separately offers PAXG perpetual exposure and a newer **GOLD_USDC commodity perpetual**, neither of which is a PAXG option.
+
+- The adapter deliberately calls `get_instruments(currency="any", kind="option", expired="false")`: that is the **current instrument catalog**, not a historical option catalog. `base_currency == "PAXG"` and USDC settlement joins were already checked. A zero current-listing response should not trigger switching to an unrelated `GOLD` perpetual or generating synthetic option quotes.
+- For historical research, investigate Deribit's separate `history.deribit.com/api/v2/public/get_instruments` and instrument/trade history for **previously listed** PAXG options. `expired=true` on the ordinary live API is not a guaranteed complete archive, and historical contract/trade metadata cannot reconstruct past hourly bid/ask/IV snapshots. Historical backfill is a separate, explicitly scoped capability, not an excuse to mark current option snapshots complete with invented rows.
+- Treat a zero listing as an **observed per-slot state**, not a permanent hardcoded statement about product support. Preserve `allow_unlisted: [PAXG]`, source catalog validation, and immutable per-slot coverage manifests; if the product is relisted, live option collection should resume automatically.
+
+Sources: [Deribit PAXG launch](https://insights.deribit.com/education/pax-gold-paxg-from-paxos-launches-on-deribit/), [Deribit delisting notice repost (2025-07-03)](https://www.aicoin.com/en/news-flash/2455423), [Deribit Coinbase Crypto Index methodology (updated 2026-11-04)](https://support.deribit.com/hc/en-us/articles/38373568169501-Coinbase-Crypto-Index-Price-Methodology), [Deribit commodity perpetual expansion](https://insights.deribit.com/exchange-updates/deribit-launches-its-biggest-ever-product-expansion/).
+
 - `option_chain.allow_unlisted: [PAXG]` makes this a narrow, explicit, validated exception. All other configured option underlyings remain strict. Adding a contract later automatically resumes ordinary option-chain output.
 - For `futures_curve`, absence of a listed futures product for one base is an allowed optional product state; an absent quote for an actually listed future **always fails** the whole batch.
 - On a verified zero-listing, write `deribit/coverage/YYYY/MM/DD/HH00.json` with the exact UTC slot, actual observation time, dataset, base underlying and `listed_count: 0`. Commit it atomically with the same slot's validated Parquet datasets and completion receipt. The lack of an asset-specific Parquet part is then auditable, not silently dropped or represented as a fabricated zero price.
@@ -266,8 +274,9 @@ The probe uses actual public Deribit responses to check:
 
 - BTC/ETH/PAXG derivative catalog by `base_currency` and `kind`, separately
   tracking listed/active option/future counts and settlement-currency partitions;
-  PAXG options missing from the actual source is a **blocking capability
-  finding**, not a reason to fabricate a contract or quote.
+  PAXG option zero-listing is informational **only** under the narrow
+  configured `allow_unlisted` exception and a verified empty instrument list;
+  an incomplete quote for any listed contract remains blocking.
 - Exact referenced `price_index` names cross-checked against the source
   `get_index_price_names` catalog; never invent an `_usd` or `_usdc` fallback.
 - A complete hourly option/index/futures/DVOL batch rendered in-memory as
