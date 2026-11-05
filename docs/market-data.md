@@ -11,12 +11,21 @@ Status: **agreed design, collector not yet deployed**. Implementation and accept
 - Collection scope is defined in [`config/market-data.yml`](../config/market-data.yml), starting with BTC/ETH Deribit option chains. PAXG or SOL can be enabled by adding symbols to `underlyings`, without changing code.
 - Underlyings, data sources and datasets are **logical classification dimensions**, independent of an investment theme (e.g. gold or crypto).
 
+## Frequency, scheduling, and commit policy
+
+- `sources.deribit.datasets.option_chain.interval_hours` is configurable. V1 supports positive divisors of 24: `1, 2, 3, 4, 6, 8, 12, 24`. The default is **4 hours**. Changing frequency does not require source code changes. Different datasets may use different intervals.
+- GitHub Actions does not evaluate arbitrary YAML configuration as a cron expression. Use a fixed off-hour hourly scheduler (`37 * * * *`) and a **cheap due-gate** that reads this config and only starts collection for eligible UTC hours. An interval of 4 means UTC hours 00, 04, 08, 12, 16, 20. Subhour frequency would require a separate scheduler-design change, not silently run at the wrong interval.
+- The gate, not the collector, should decide when each dataset is due, before installing PyArrow or fetching data. `workflow_dispatch` is available for manual recovery. Record actual API capture timestamps and reject false/backdated historical quotes.
+- **Data is grouped by UTC day as a directory, not by continually rewriting one physical Parquet file.** Each run writes one immutable Parquet part per enabled underlying and UTC time slot, followed by **one commit for all symbols**. Commit count is therefore governed by capture frequency, not the number of assets.
+- At four-hour sampling this is six commits per day (2,190 annually), which is not a practical commit explosion. A daily rolling Parquet rewrite would create six versions of a compressed blob, inflating Git object storage and increasing upload work. PyArrow cannot reopen a closed Parquet file to append row groups without rewriting it.
+- **Do not automatically squash, amend or force-push** the published `market-data` history. Squashing does not guarantee old GitHub objects will be immediately reclaimed; it also breaks stable commit SHA references and complicates concurrent scheduled runs. A future one-commit-per-day policy requires a separately designed reliable *temporary* accumulation layer, then a single daily immutable publish. Do not add that complexity in v1.
+
 ## Classification and file paths
 
 Use:
 
 ```text
-<provider>/<dataset>/<underlying>/<YYYY>/<MM>/<UTC-slot>.parquet
+<provider>/<dataset>/<underlying>/<YYYY>/<MM>/<DD>/<HHmm>.parquet
 ```
 
 Example, with a four-hour UTC schedule:
@@ -25,12 +34,15 @@ Example, with a four-hour UTC schedule:
 market-data/       # branch name, not a directory
   deribit/
     option_chain/
-      BTC/2026/11/2026-11-05T1200Z.parquet
-      ETH/2026/11/2026-11-05T1200Z.parquet
-      PAXG/2026/11/2026-11-05T1200Z.parquet   # only when enabled
+      BTC/2026/11/05/0000.parquet
+      BTC/2026/11/05/0400.parquet
+      BTC/2026/11/05/0800.parquet
+      ETH/2026/11/05/0000.parquet
+      ETH/2026/11/05/0400.parquet
+      PAXG/2026/11/05/0000.parquet   # only when enabled
 ```
 
-The slot in the filename identifies an expected schedule window, **not** the moment when the API was queried. Every row carries the actual `captured_at` time, and Parquet key/value metadata records the first and last capture time. Never backdate newly collected quotes when a scheduled job was missed.
+Each day directory is a logical partition; its time-slot files are the physical immutable snapshots. The slot in the filename identifies an expected schedule window, **not** the moment when the API was queried. Every row carries the actual `captured_at` time, and Parquet key/value metadata records the first and last capture time. Never backdate newly collected quotes when a scheduled job was missed.
 
 This hierarchy supports adding providers or separate datasets (e.g. `deribit/future/`, `provider/spot/`) later without restructuring the existing option-chain archive. Each dataset owns its own schema; do not normalize incompatible product fields into one giant table.
 
@@ -63,12 +75,12 @@ Keep `NULL` for missing quotes/fields (never coerce to zero). Keep price/volume 
 
 ## Scheduling and Git publishing
 
-- Proposed cadence: every four hours, off the hour (UTC 00:37, 04:37, 08:37, 12:37, 16:37, 20:37), plus manual dispatch.
-- A job collects **all configured symbols**, validates every generated Parquet, and publishes the batch atomically in one commit. A partial failed batch must not be reported as a full snapshot.
+- Fixed hourly GitHub Actions trigger at UTC minute 37; the due-gate checks configurable per-dataset `interval_hours` before performing expensive collection. Default four-hour collection occurs at UTC 00:37, 04:37, 08:37, 12:37, 16:37, 20:37. Manual dispatch can retry skipped windows, but must not misrepresent newly fetched quotes as historical captures.
+- A due job collects **all configured symbols** for that dataset, validates every generated immutable Parquet part for that time slot, and publishes the batch atomically in one commit. A partial failed batch must not be reported as a full snapshot.
 - On first publish, create an orphan root commit with **zero parents** and create `refs/heads/market-data`.
 - For subsequent publishes, use GitHub Git Data API to create blobs and a new tree based on the existing tip tree, create a commit with the existing tip as its parent and advance the branch ref without `force`.
 - Do not checkout the `market-data` branch or fetch its historical blob objects in the collector. The normal `main` checkout uses depth 1.
-- Idempotency is per `provider/dataset/underlying/UTC-slot`: never overwrite a historical file or force-push. Verify **all** configured slot paths are either absent or already a complete identical snapshot; partial or conflicting writes fail loudly.
+- Idempotency is per `provider/dataset/underlying/UTC-date/UTC-slot`: never overwrite a historical file or force-push. Verify **all** configured slot paths are either absent or already a complete identical snapshot; partial or conflicting writes fail loudly.
 - Protect against overlapping scheduled/manual runs with workflow concurrency. Avoid retrying API failures as blank or artificially reconstructed historical snapshots.
 - The collector needs only a scoped `GITHUB_TOKEN` (`contents: write`) on the same repository; do not store third-party API secrets for public market endpoints.
 - The orphan branch is an independent Git history but **shares repository object storage** and GitHub repo-size considerations with `main`. Use shallow/single-branch clones and inspect total repository size over time.
@@ -78,7 +90,7 @@ Keep `NULL` for missing quotes/fields (never coerce to zero). Keep price/volume 
 - Historical research reads `market-data` Parquet files via DuckDB/PyArrow after fetching only the requested files/refs, rather than mixing data into the regular code checkout.
 - Pages may later publish a deliberately reduced JSON summary; it should not download or parse years of raw option-chain files in the browser.
 - Schema changes must be explicit and backward-readable (new `schema=v2` dataset or schema metadata/reader evolution), never silently reinterpret existing columns.
-- Monitor actual ZSTD Parquet bytes, number of rows, success time, Git storage growth and missing UTC slots. Validate with real snapshots before treating any estimated per-file size as a guarantee.
+- Monitor actual ZSTD Parquet bytes, number of rows, success time, commit count, Git storage growth and missing UTC slots. Validate with real snapshots before treating any estimated per-file size as a guarantee.
 
 ## Acceptance
 
