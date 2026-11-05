@@ -142,6 +142,15 @@ For delivery events store `index_name`, native event date/time, native delivery 
 - These pagination assumptions require verification against real Deribit responses before production. The adapter **does not yet implement event-level incremental filtering across archived slots**, delayed-event recovery, or daily batch wiring. The default pipeline deliberately refuses a due delivery dataset until these exist.
 - Offline tests cover multi-page responses, zero-event history, malformed values, changing totals, conflicting timestamps and bounded page exhaustion.
 
+## Hourly workflow activation and safe rollout
+
+The new `.github/workflows/deribit-archive.yml` is intentionally **disabled for automatic publication** unless the repository variable `DERIBIT_ARCHIVE_ENABLED` is explicitly set to the string `true`. Undefined/empty/false means scheduled runs skip both jobs (safe by default), even after the workflow is merged to `main`. No archive branch is initialized automatically while disabled.
+
+- `workflow_dispatch` defaults to `publish: false` and runs a **read-only** live source probe and complete due-hour Parquet batch preparation, including existing event-key metadata lookups. Its job token has only `contents: read`; `--publish` is not passed.
+- The separate `publish` job has `contents: write` and is eligible **only** when `DERIBIT_ARCHIVE_ENABLED=true` and either an hourly `schedule` event fires or a manual run explicitly supplies `publish: true`. It still depends on a successful read-only source/collector acceptance job; that guard is not a substitute for CI and real Git reference verification.
+- When the operator elects to activate, validate a controlled successful append-only publication (orphan root must have zero parents, immutable Parquet/coverage/receipt all present, a duplicate same-hour run is a no-op, and no `main` history is fetched) before relying on scheduled runs. Stop/disable by setting the variable back to `false`.
+- GitHub schedules execute only from the default branch. The workflow added on this PR branch is **not a live schedule** until merged; no repo variable has been set as part of this work. The read-only contract workflow is independent and remains the pre-activation test.
+
 ## Validation and consumption
 
 - Test BTC/ETH/PAXG from common configuration; include options across multiple settlement currencies, the PAXG futures/option listing behavior and multiple index names per base. Verify DVOL/HV remain BTC/ETH-only unless support is explicitly confirmed.
