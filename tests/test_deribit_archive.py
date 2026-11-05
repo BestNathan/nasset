@@ -22,6 +22,7 @@ def test_hourly_scope_and_daily_incremental_sources():
         assert all_sources[name].interval_hours == 1
     assert all_sources["option_chain"].underlyings == ("BTC", "ETH", "PAXG")
     assert all_sources["futures_curve"].underlyings == ("BTC", "ETH", "PAXG")
+    assert all_sources["option_chain"].options["allow_unlisted"] == ["PAXG"]
     assert all_sources["volatility_index"].underlyings == ("BTC", "ETH")
     assert all_sources["historical_volatility"].underlyings == ("BTC", "ETH")
 
@@ -80,3 +81,22 @@ def test_volatility_datasets_reject_paxg_before_network(dataset):
     }
     with pytest.raises(ValueError, match="BTC/ETH only"):
         parse_config(doc)
+
+
+@pytest.mark.parametrize("allow", [
+    ["DOGE"], ["BTC", "BTC"], "PAXG", [True], ["paxg"],
+])
+def test_invalid_unlisted_allowlist_rejected_before_network(allow):
+    import yaml
+    raw = yaml.safe_load(CONFIG.read_text())
+    raw["sources"]["deribit"]["datasets"]["option_chain"]["allow_unlisted"] = allow
+    with pytest.raises(ValueError, match="allow_unlisted"):
+        parse_config(raw)
+
+
+def test_unlisted_policy_cannot_be_attached_to_index_price():
+    import yaml
+    raw = yaml.safe_load(CONFIG.read_text())
+    raw["sources"]["deribit"]["datasets"]["index_price"]["allow_unlisted"] = ["PAXG"]
+    with pytest.raises(ValueError, match="only for listed derivative"):
+        parse_config(raw)
