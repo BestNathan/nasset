@@ -127,8 +127,18 @@ def test_hourly_archive_workflow_is_explicitly_publish_gated():
         checkouts = [step for step in job["steps"] if step.get("uses", "").startswith("actions/checkout@")]
         assert len(checkouts) == 1, name
         assert checkouts[0]["with"] == {
-            "ref": "main", "fetch-depth": "1", "persist-credentials": "false",
+            "ref": "${{ github.sha }}", "fetch-depth": "1", "persist-credentials": "false",
         }
+    assert "github.ref == 'refs/heads/main'" in writer["if"]
+    assert read_only["outputs"]["slot"] == "${{ steps.slot.outputs.slot }}"
+    assert any(step.get("id") == "slot" and "date -u" in step.get("run", "")
+               for step in read_only["steps"])
+    assert '--at "${{ steps.slot.outputs.slot }}"' in " ".join(
+        step.get("run", "") for step in read_only["steps"]
+    )
+    assert '--at "${{ needs.read-only-acceptance.outputs.slot }}"' in " ".join(
+        step.get("run", "") for step in writer["steps"]
+    )
     assert "--publish" not in " ".join(
         step.get("run", "") for step in read_only["steps"]
     )
