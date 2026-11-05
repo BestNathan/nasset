@@ -66,7 +66,10 @@ def prepare_live_batch(
     if assets:
         allowed_unlisted = tuple(sorted({
             asset for ds in due if ds.name in {"option_chain", "futures_curve"}
-            for asset in ds.options.get("allow_unlisted", [])
+            for asset in (
+                ds.underlyings if ds.name == "futures_curve"
+                else ds.options.get("allow_unlisted", [])
+            )
         }))
         snapshot = client.snapshot(
             assets,
@@ -100,7 +103,12 @@ def prepare_live_batch(
                     if i.get("base_currency") == asset
                     and i.get("kind") == ("option" if name == "option_chain" else "future")
                 ]
-                if not listed and asset in ds.options.get("allow_unlisted", []):
+                if not listed and (
+                    name == "futures_curve"
+                    or asset in ds.options.get("allow_unlisted", [])
+                ):
+                    # Futures are an optional listed product for each base,
+                    # unlike option-chain coverage (strict unless allowlisted).
                     unlisted.append((name, asset))
                     continue
                 if not listed:
