@@ -1,8 +1,10 @@
 """No-network contract tests for Deribit source capability and size probe."""
 from datetime import datetime, timezone
+from dataclasses import replace
 
 import pytest
 
+from nasset.deribit_archive import ArchiveConfig
 from nasset.deribit_client import DeribitClient, DeribitError
 from nasset.deribit_probe import normalize_supported_indices, probe
 from test_deribit_client import fixture_transport
@@ -146,3 +148,32 @@ def test_probe_reports_full_delivery_pagination_counts():
     assert ("btc_usd", 0) in calls
     assert ("btc_usd", 1000) in calls
     assert len(calls) == 2 * len(INDEXES)
+
+
+def test_explicit_unlisted_paxg_is_informational_and_live_probe_can_pass():
+    def no_paxg_options(method, params):
+        rows = transport(method, params)
+        if method == "get_instruments" and params["kind"] == "option":
+            return [row for row in rows if row["base_currency"] != "PAXG"]
+        if method == "get_book_summary_by_currency" and params["kind"] == "option":
+            return [row for row in rows if row["instrument_name"] != "PAXG-OPT"]
+        return rows
+
+    cfg = config("option_chain", "index_price", "futures_curve", "volatility_index")
+    cfg = ArchiveConfig(cfg.branch, cfg.compression_level, tuple(
+        replace(ds, options={**ds.options, "allow_unlisted": ["PAXG"]})
+        if ds.name == "option_chain" else ds
+        for ds in cfg.datasets
+    ))
+    result = probe(cfg, DeribitClient(transport=no_paxg_options), NOW)
+    assert result["status"] == "ok"
+    assert not result["source_failures"]
+    assert result["capability_gaps"] == [{
+        "underlying": "PAXG",
+        "dataset": "option_chain",
+        "reason": "no option instruments listed",
+        "severity": "informational",
+    }]
+    assert result["compressed_parquet"]["option_chain"]["rows"] == 3
+    assert result["measured_scope"]["option_chain"] == ["BTC", "ETH"]
+    assert result["measured_scope"]["futures_curve"] == ["BTC", "ETH", "PAXG"]
