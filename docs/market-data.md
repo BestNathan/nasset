@@ -196,3 +196,28 @@ notice mentions new start/end timestamp filters, but that release was
 **postponed**, so incremental replay does **not** depend on those filters.
 Date-only settlement and millisecond historical-volatility observations
 remain distinct identity domains.
+
+
+### Immutable UTC-slot completion receipt (implementation checkpoint)
+
+A successful non-empty due-slot publish now atomically includes
+`deribit/slots/YYYY/MM/DD/HH00.receipt` in the same Git tree as its Parquet
+parts and historical event markers. Its deterministic payload identifies the
+UTC hour and due dataset configuration, including selected underlyings,
+intervals and compression level; it does **not** depend on the wall-clock
+capture timestamp or current exchange quote. Before a `--publish` run
+queries Deribit, it checks this receipt using only Git tree metadata. An
+identical completed slot is skipped; an incompatible configuration is a
+hard conflict. A concurrent ref movement is still handled by a non-forced
+Git update, with receipt checking repeated in the publisher.
+
+A receipt represents a completed **non-empty** batch, not proof that a
+daily historical event-only poll returned no new events. Empty event-only
+polls remain read-only, and subsequent polls can recover late arrivals.
+A dry run deliberately does not use the completion shortcut, so it can
+still measure a fresh source sample. This receipt is not an archive manifest
+or a substitute for independent Git-object-size and source-completeness
+monitoring.
+
+The orphan archive and scheduled production collector remain disabled until
+real Deribit API/PAXG contracts and measured live Parquet sizes are verified.
