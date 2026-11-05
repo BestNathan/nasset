@@ -124,18 +124,25 @@ def test_probe_checks_all_delivery_pages_not_only_first_page():
 
 
 def test_probe_reports_full_delivery_pagination_counts():
+    from datetime import date, timedelta
+
     calls = []
+    events = [
+        {"date": (date(2020, 1, 1) + timedelta(days=day)).isoformat(),
+         "delivery_price": 35000.0 + day}
+        for day in range(1001)
+    ]
     def two_page_delivery(method, params):
         if method == "get_delivery_prices":
-            calls.append(params["offset"])
-            events = [{"date": "2023-11-14", "delivery_price": 35000.0},
-                      {"date": "2023-11-15", "delivery_price": 35100.0}]
+            calls.append((params["index_name"], params["offset"]))
             return {"data": events[params["offset"]:params["offset"] + params["count"]],
-                    "records_total": 2}
+                    "records_total": len(events)}
         return transport(method, params)
     report = probe(config("index_price"), DeribitClient(transport=two_page_delivery), NOW)
     assert report["status"] == "ok"
     assert report["delivery_price_samples"]["btc_usd"] == {
-        "validated_rows": 2, "pagination_complete": True,
+        "validated_rows": 1001, "pagination_complete": True,
     }
-    assert calls.count(0) == len(INDEXES)
+    assert ("btc_usd", 0) in calls
+    assert ("btc_usd", 1000) in calls
+    assert len(calls) == 2 * len(INDEXES)
