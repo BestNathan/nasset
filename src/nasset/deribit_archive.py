@@ -92,6 +92,8 @@ def parse_config(doc: Mapping[str, Any]) -> ArchiveConfig:
             if index_names != "auto" and (not isinstance(index_names, list) or
                                             not index_names or any(not isinstance(n, str) or not n for n in index_names)):
                 raise ValueError(f"{name}.index_names must be auto or a list")
+        if name in {"volatility_index", "historical_volatility"} and not set(selected).issubset({"BTC", "ETH"}):
+            raise ValueError(f"{name}.underlyings supports BTC/ETH only")
         if name == "volatility_index" and spec.get("resolution") not in ("3600", 3600):
             raise ValueError("volatility_index.resolution must be hourly")
         if spec["enabled"]:
