@@ -149,33 +149,25 @@ def probe(config: ArchiveConfig, client: DeribitClient,
             source_failures[f"historical_volatility/{asset}"] = str(exc)
             continue
         history[asset] = {"observations": len(series)}
+    # Validate complete pagination, not just the first two rows. A first-page
+    # sample cannot reveal repeated offsets, changed totals or late bad pages.
+    # This remains read-only and never publishes historical events.
     settlement_samples = {}
     for index in sorted(price_indexes):
         try:
-            response = client.call("get_delivery_prices", index_name=index, offset=0, count=2)
+            rows = client.delivery_prices(index)
         except DeribitError as exc:
             source_failures[f"delivery_price/{index}"] = str(exc)
             continue
-        if (not isinstance(response, dict) or not isinstance(response.get("data"), list)
-                or type(response.get("records_total")) is not int):
-            raise DeribitError(f"delivery {index}: malformed sample")
-        for row in response["data"]:
-            raw = row.get("date") if isinstance(row, dict) else None
-            if not isinstance(raw, str):
-                raise DeribitError(f"delivery {index}: expected native YYYY-MM-DD date")
-            try:
-                day = date.fromisoformat(raw)
-            except ValueError as exc:
-                raise DeribitError(f"delivery {index}: malformed native date") from exc
-            if day.isoformat() != raw or day > observed.date():
-                raise DeribitError(f"delivery {index}: invalid native event date")
-            value = row.get("delivery_price")
-            if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
-                raise DeribitError(f"delivery {index}: invalid source price")
-        settlement_samples[index] = {
-            "records_total": response["records_total"],
-            "sample_rows": len(response["data"]),
-        }
+        for row in rows:
+            if date.fromisoformat(row["event_date"]) > observed.date():
+                source_failures[f"delivery_price/{index}"] = "future native delivery date"
+                break
+        if f"delivery_price/{index}" not in source_failures:
+            settlement_samples[index] = {
+                "validated_rows": len(rows),
+                "pagination_complete": True,
+            }
 
     blocked = any(g["severity"] == "blocking" for g in capability_gaps) or bool(source_failures)
     return {
