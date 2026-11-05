@@ -1,8 +1,8 @@
 """Fail-closed orchestration of the implemented Deribit live snapshot datasets.
 
-This layer deliberately does not publish a subset of a due batch: DVOL,
-historical volatility and delivery event adapters must be implemented before
-a production run with the full configured scope can be enabled.
+Snapshot and historical-event datasets are prepared together. Historical
+data is filtered by immutable event identities already present in Git tree
+metadata; no historical Parquet files need to be downloaded.
 """
 from __future__ import annotations
 
@@ -13,8 +13,13 @@ from typing import Mapping
 from .deribit_archive import ArchiveConfig
 from .deribit_client import DeribitClient, DeribitError
 from .deribit_parquet import SCHEMAS, encode_part, part_path
+from .deribit_history import ExistingLookup, unseen_events
 
-LIVE_DATASETS = frozenset({"option_chain", "index_price", "futures_curve", "volatility_index"})
+LIVE_DATASETS = frozenset({
+    "option_chain", "index_price", "futures_curve", "volatility_index",
+    "historical_volatility", "delivery_price",
+})
+HISTORY_DATASETS = frozenset({"historical_volatility", "delivery_price"})
 
 
 @dataclass(frozen=True)
@@ -24,7 +29,10 @@ class PreparedBatch:
     datasets: tuple[str, ...]
 
 
-def prepare_live_batch(config: ArchiveConfig, client: DeribitClient, now: datetime) -> PreparedBatch:
+def prepare_live_batch(
+    config: ArchiveConfig, client: DeribitClient, now: datetime,
+    *, existing: ExistingLookup | None = None,
+) -> PreparedBatch:
     """Prepare all due datasets or fail without publishing any file.
 
     The caller may publish the returned mapping once using
@@ -44,7 +52,10 @@ def prepare_live_batch(config: ArchiveConfig, client: DeribitClient, now: dateti
         )
 
     by_name = {ds.name: ds for ds in due}
-    asset_sets = [set(ds.underlyings) for ds in due if ds.name != "volatility_index"]
+    if any(name in by_name for name in HISTORY_DATASETS) and existing is None:
+        raise ValueError("daily history requires an event-key lookup; refusing undeduplicated publish")
+    asset_sets = [set(ds.underlyings) for ds in due
+                  if ds.name in {"option_chain", "futures_curve", "index_price"}]
     # DeribitClient.snapshot() requires a complete quote set for each selected
     # instrument kind, so gather the union and filter rows by dataset scope.
     assets = tuple(sorted(set().union(*asset_sets)))
@@ -123,8 +134,68 @@ def prepare_live_batch(config: ArchiveConfig, client: DeribitClient, now: dateti
                 "volatility_index", list(candles), slot=slot, captured_at=instant,
                 compression_level=config.compression_level,
             )
-    if not parts:
-        raise DeribitError("no parts prepared for due datasets")
+    if "historical_volatility" in by_name:
+        ds = by_name["historical_volatility"]
+        for asset in ds.underlyings:
+            rows = client.historical_volatility(asset)
+            fresh, markers = unseen_events(
+                "historical_volatility", asset, rows,
+                observed_at=instant, existing=existing,
+            )
+            if fresh:
+                parts[part_path("historical_volatility", slot, underlying=asset)] = encode_part(
+                    "historical_volatility", _project("historical_volatility", fresh),
+                    slot=slot, captured_at=instant,
+                    compression_level=config.compression_level,
+                )
+                parts.update(markers)
+
+    if "delivery_price" in by_name:
+        ds = by_name["delivery_price"]
+        # Reuse metadata obtained for live snapshots, or discover independently
+        # for a delivery-only configuration. No book summaries are necessary.
+        instruments = snapshot.instruments if snapshot else client.instruments()
+        index_assets: dict[str, str] = {}
+        for instrument in instruments:
+            asset, index_name = instrument.get("base_currency"), instrument.get("price_index")
+            if asset not in ds.underlyings or not index_name:
+                continue
+            previous = index_assets.setdefault(index_name, asset)
+            if previous != asset:
+                raise DeribitError(f"index maps to multiple base assets: {index_name}")
+        configured_names = ds.options.get("index_names", "auto")
+        if configured_names != "auto":
+            unknown = set(configured_names) - set(index_assets)
+            if unknown:
+                raise DeribitError(f"delivery: unverified index names: {sorted(unknown)}")
+            index_assets = {k: v for k, v in index_assets.items() if k in configured_names}
+        if set(index_assets.values()) != set(ds.underlyings):
+            raise DeribitError("delivery: missing source index for configured underlying")
+        fresh_events = []
+        event_markers = {}
+        for index_name, asset in sorted(index_assets.items()):
+            original = client.delivery_prices(index_name)
+            rows = [{**row, "base_currency": asset,
+                     "quote_currency": index_name.rsplit("_", 1)[-1].upper()}
+                    for row in original]
+            fresh, markers = unseen_events(
+                "delivery_price", index_name, rows,
+                observed_at=instant, existing=existing,
+            )
+            fresh_events.extend(fresh)
+            event_markers.update(markers)
+        if fresh_events:
+            parts[part_path("delivery_price", slot)] = encode_part(
+                "delivery_price", _project("delivery_price", fresh_events),
+                slot=slot, captured_at=instant,
+                compression_level=config.compression_level,
+            )
+            parts.update(event_markers)
+
+    # Empty event-only increments are healthy. The caller must skip publish()
+    # for an empty mapping; the publisher never accepts empty commits.
+    if not parts and not set(by_name).issubset(HISTORY_DATASETS):
+        raise DeribitError("no parts prepared for due snapshot datasets")
     return PreparedBatch(slot, parts, tuple(ds.name for ds in due))
 
 
