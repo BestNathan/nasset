@@ -151,7 +151,9 @@ class DeribitClient:
                     if name in quotes and quotes[name] != quote:
                         raise DeribitError(f"conflicting book summaries for {name}")
                     quotes[name] = quote
-        missing = set(selected) - set(quotes)
+        # Index-only discovery intentionally fetches instrument metadata but no
+        # book summaries. Coverage applies only to requested quote kinds.
+        missing = set(selected) - set(quotes) if kinds else set()
         if missing:
             raise DeribitError(f"missing book summaries for {len(missing)} listed instruments: "
                                + ", ".join(sorted(missing)[:5]))
