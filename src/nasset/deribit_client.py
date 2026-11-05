@@ -283,8 +283,16 @@ class DeribitClient:
                 raise DeribitError("no index names discovered from instrument metadata")
             for name in sorted(names):
                 value = self.call("get_index_price", index_name=name)
-                if not isinstance(value, dict) or not isinstance(value.get("index_price"), (int, float)):
+                if (not isinstance(value, dict)
+                        or type(value.get("index_price")) not in (int, float)
+                        or not math.isfinite(value["index_price"])
+                        or value["index_price"] < 0):
                     raise DeribitError(f"get_index_price({name}): invalid result")
+                estimated = value.get("estimated_delivery_price")
+                if (estimated is not None and
+                        (type(estimated) not in (int, float)
+                         or not math.isfinite(estimated) or estimated < 0)):
+                    raise DeribitError(f"get_index_price({name}): invalid estimated delivery price")
                 indices.append({"index_name": name, **value})
         return MarketSnapshot(
             captured_at=datetime.now(timezone.utc), instruments=tuple(selected.values()),
