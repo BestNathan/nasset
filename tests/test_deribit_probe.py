@@ -36,6 +36,8 @@ def test_probe_is_read_only_and_measures_actual_parquet_fixture_bytes():
                           "volatility_index"),
                    DeribitClient(transport=observed_transport), NOW)
     assert output["publisher_invoked"] is False
+    assert output["status"] == "ok"
+    assert not output["source_failures"]
     assert output["underlyings"]["PAXG"]["options_listed"] == 1
     assert output["underlyings"]["PAXG"]["futures_listed"] == 1
     assert output["underlyings"]["BTC"]["settlement_currencies"] == ["BTC", "USDC"]
@@ -83,10 +85,14 @@ def test_unlisted_paxg_options_are_a_capability_failure_not_synthetic_data():
         if method == "get_instruments" and params["kind"] == "option":
             return [row for row in result if row.get("base_currency") != "PAXG"]
         return result
-    with pytest.raises(DeribitError, match="PAXG: no option instruments"):
-        probe(config("option_chain", "index_price"), DeribitClient(
-            transport=no_paxg_options,
-        ), NOW)
+    report = probe(config("option_chain", "index_price"), DeribitClient(
+        transport=no_paxg_options,
+    ), NOW)
+    assert report["status"] == "blocked"
+    assert any(g["underlying"] == "PAXG" and g["dataset"] == "option_chain"
+               and g["severity"] == "blocking" for g in report["capability_gaps"])
+    assert report["measured_scope"]["option_chain"] == ["BTC", "ETH"]
+    assert report["compressed_parquet"]["option_chain"]["rows"] == 3
 
 
 def test_source_settlement_date_must_not_be_interpreted_as_epoch():
