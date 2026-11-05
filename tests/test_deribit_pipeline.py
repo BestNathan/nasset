@@ -161,3 +161,22 @@ def test_scheduler_time_is_not_a_capture_completion_deadline():
                                DeribitClient(transport=fixture_transport), now)
     assert len(batch.parts) == 3
     assert batch.slot == now
+
+
+
+def test_shared_index_name_across_base_assets_fails_closed():
+    """An exchange metadata collision must never silently relabel an index."""
+    now = datetime.now(timezone.utc).replace(minute=59, second=59, microsecond=999999)
+    calls = []
+
+    def transport(method, params):
+        calls.append(method)
+        rows = fixture_transport(method, params)
+        if method == "get_instruments" and params["kind"] == "future":
+            rows = [dict(row, price_index="btc_usd")
+                    if row["base_currency"] == "PAXG" else row for row in rows]
+        return rows
+
+    with pytest.raises(DeribitError, match="index maps to multiple base assets: btc_usd"):
+        prepare_live_batch(config("index_price"), DeribitClient(transport=transport), now)
+    assert "get_index_price" in calls
