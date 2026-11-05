@@ -7,7 +7,7 @@ Status: **design only, collection not yet enabled**. Implementation: [issue #6](
 - Code, workflow and configuration remain on `main`; archived immutable Parquet objects live on a true `market-data` **orphan branch** (no shared root history), in the same GitHub repository.
 - Parquet uses native ZSTD compression level 6. Schema is explicit and versioned. Do **not** create a global numeric instrument-ID dictionary: store the original names, and use Parquet dictionary encoding as appropriate.
 - Deribit collection is now a **multi-dataset provider** rather than an option-chain-only job. Each dataset has its own source API, typed schema, frequency, validation rules and partitioning.
-- Common `sources.deribit.underlyings: [BTC, ETH, PAXG]` selects underlying/base assets. PAXG is enabled in the target configuration, including its listed options and futures/perpetuals where present.
+- Common `sources.deribit.underlyings: [BTC, ETH, PAXG]` selects underlying/base assets. **The production Deribit `option_chain` dataset explicitly narrows this to `[BTC, ETH]`; PAXG remains included in index, finalized delivery and listed futures/perpetual datasets.** A shared asset universe does not authorize collecting that asset in every dataset.
 - Optional dataset-level `underlyings` overrides the common list where API capability is narrower. DVOL and historical volatility are initially limited to BTC/ETH. Adding PAXG to the common scope does **not** automatically invoke unsupported volatility endpoints. Missing listed instruments must be distinguished from errors and recorded as explicit coverage/capability status.
 - Collect raw reference series with native units/timestamps; do not mix them into an investment-theme hierarchy.
 
@@ -43,6 +43,14 @@ References:
 - For `delivery_price`, obtain records by full index name and preserve the **settlement event date/time**, not merely the collection time; deduplicate overlapping paginated lookbacks by an event key including index name and native event timestamp/date.
 - Fail visibly on unrecognized configured symbols, incompatible dataset capability or missing required data; an API success with an empty response is not automatically a healthy snapshot. A legitimate no-new-delivery-events result, however, is not a failure.
 
+## Active Deribit source scope (2026-11-06 decision)
+
+The production Deribit option-chain collector **does not collect PAXG options**. It collects listed **BTC and ETH options only**. Keep PAXG under the shared source scope so `index_price`, finalized `delivery_price`, and `futures_curve` continue to capture any real PAXG reference and perpetual/futures instruments.
+
+The snapshot adapter enforces **independent option and future quote asset scopes**, not just output filtering. The union of option/index/futures assets is used for metadata discovery, but PAXG metadata may **never** add PAXG to the configured BTC/ETH option quote-coverage gate. No PAXG option Parquet file, source quote requirement or PAXG option zero-listing coverage record is expected from the current config. This avoids both silent scope expansion and fabricated prices.
+
+CME/COMEX `OG` (100-troy-ounce gold futures options), `OMG` (10-troy-ounce micro gold futures options), US-listed `GLD` ETF options, and SHFE `AU` gold futures options are separate potential gold-options data sources. **They are not Deribit instruments** and cannot be added by generating synthetic `PAXG` Deribit contract names. Any other-venue integration requires its own provider/API, instrument/settlement semantics, data-rights and coverage review.
+
 ## Verified zero-listing capabilities and completeness
 
 The 2026-11-05 live Deribit probe returned **zero listed PAXG options**, despite listing one PAXG future and the `paxg_usdc` index. A missing market product is **not** an API failure, but it must never be confused with an incomplete quote response.
@@ -51,11 +59,11 @@ The 2026-11-05 live Deribit probe returned **zero listed PAXG options**, despite
 
 - The adapter deliberately calls `get_instruments(currency="any", kind="option", expired="false")`: that is the **current instrument catalog**, not a historical option catalog. `base_currency == "PAXG"` and USDC settlement joins were already checked. A zero current-listing response should not trigger switching to an unrelated `GOLD` perpetual or generating synthetic option quotes.
 - For historical research, investigate Deribit's separate `history.deribit.com/api/v2/public/get_instruments` and instrument/trade history for **previously listed** PAXG options. `expired=true` on the ordinary live API is not a guaranteed complete archive, and historical contract/trade metadata cannot reconstruct past hourly bid/ask/IV snapshots. Historical backfill is a separate, explicitly scoped capability, not an excuse to mark current option snapshots complete with invented rows.
-- Treat a zero listing as an **observed per-slot state**, not a permanent hardcoded statement about product support. Preserve `allow_unlisted: [PAXG]`, source catalog validation, and immutable per-slot coverage manifests; if the product is relisted, live option collection should resume automatically.
+- Treat zero listings as observations rather than permanent claims about product support. Under the **new production scope**, PAXG is **not configured for `option_chain`**, so no PAXG option part or option-unlisted manifest is expected, even if PAXG options relist. A future opt-in would require an explicit config/acceptance change. Generic verified-zero-listing coverage remains available for configured derivative datasets.
 
 Sources: [Deribit PAXG launch](https://insights.deribit.com/education/pax-gold-paxg-from-paxos-launches-on-deribit/), [Deribit delisting notice repost (2025-07-03)](https://www.aicoin.com/en/news-flash/2455423), [Deribit Coinbase Crypto Index methodology (updated 2026-11-04)](https://support.deribit.com/hc/en-us/articles/38373568169501-Coinbase-Crypto-Index-Price-Methodology), [Deribit commodity perpetual expansion](https://insights.deribit.com/exchange-updates/deribit-launches-its-biggest-ever-product-expansion/).
 
-- `option_chain.allow_unlisted: [PAXG]` makes this a narrow, explicit, validated exception. All other configured option underlyings remain strict. Adding a contract later automatically resumes ordinary option-chain output.
+- **Current target:** `option_chain.underlyings: [BTC, ETH]`, with no `option_chain.allow_unlisted` exception. Both BTC and ETH options must have complete listed-contract quote coverage. Previous `allow_unlisted: [PAXG]` behavior is retained in regression tests of the generic capability mechanism, but is **not enabled in the production config**.
 - For `futures_curve`, absence of a listed futures product for one base is an allowed optional product state; an absent quote for an actually listed future **always fails** the whole batch.
 - On a verified zero-listing, write `deribit/coverage/YYYY/MM/DD/HH00.json` with the exact UTC slot, actual observation time, dataset, base underlying and `listed_count: 0`. Commit it atomically with the same slot's validated Parquet datasets and completion receipt. The lack of an asset-specific Parquet part is then auditable, not silently dropped or represented as a fabricated zero price.
 - The read-only probe reports such explicit absences as **informational** `capability_gaps`. Zero listings for strict options or a failed/empty source response for **listed** contracts are blocking. Probe results do not authorize turning on the production publisher without further checks.
@@ -87,7 +95,6 @@ market-data (orphan branch)
       BTC/2026/11/05/0000.parquet
       BTC/2026/11/05/0100.parquet
       ETH/2026/11/05/0000.parquet
-      PAXG/2026/11/05/0000.parquet
     index_price/
       2026/11/05/0000.parquet       # all relevant index names, one row each
       2026/11/05/0100.parquet
@@ -106,7 +113,7 @@ For delivery events store `index_name`, native event date/time, native delivery 
 
 ## Frequency and Git commit policy
 
-- `interval_hours` is per dataset, v1 accepts divisors of 24: `1, 2, 3, 4, 6, 8, 12, 24`. Target defaults: chain, index price, DVOL and futures curve **1h**, delivery and historical-volatility increments **24h**. DVOL and historical volatility currently use BTC/ETH-only allowlists, with PAXG covered by chain/index/futures if supported.
+- `interval_hours` is per dataset, v1 accepts divisors of 24: `1, 2, 3, 4, 6, 8, 12, 24`. Target defaults: chain, index price, DVOL and futures curve **1h**, delivery and historical-volatility increments **24h**. `option_chain`, DVOL and historical volatility are explicitly BTC/ETH only; PAXG remains in index, delivery and futures collection.
 - One workflow scheduled at `37 * * * *` UTC. A **cheap due-gate** reads config to select all enabled due datasets before installing costly dependencies. The archive runs hourly for P0/P1 live market snapshots, and daily for historical event datasets; a polling frequency must not be confused with the native event sampling interval. `workflow_dispatch` can trigger an idempotent manual run.
 - Poll all configured underlyings/indices required by each due dataset, validate them, then publish all due datasets/underlyings together in **one Git commit per due UTC slot**. Commit count is determined by the union of dataset schedules, not by the number of assets. With current 1h + 24h schedule this is **24 commits/day (~8,760/year)**, not one commit per dataset or per asset.
 - Parquet files are immutable and named for the scheduled slot/day; late capture retains actual `captured_at` and must not pretend to be a historical observation. Delayed historical **events** have their own timestamp and idempotent event key.
@@ -161,7 +168,7 @@ The new `.github/workflows/deribit-archive.yml` is intentionally **disabled for 
 
 ## Validation and consumption
 
-- Test BTC/ETH/PAXG from common configuration; include options across multiple settlement currencies, the PAXG futures/option listing behavior and multiple index names per base. Verify DVOL/HV remain BTC/ETH-only unless support is explicitly confirmed.
+- Test the actual dataset-specific configuration: BTC/ETH options across multiple settlement currencies, PAXG futures/index/delivery retained, **no PAXG option part or option coverage requirement even if an old/relisted PAXG option appears in the catalog**, and multiple index names per base. Verify DVOL/HV remain BTC/ETH-only unless support is explicitly confirmed.
 - Test index discovery, duplicate index-name responses, source data missing, empty settlement-event polls, late-arriving events, **hourly** chain/index/futures/DVOL alignment, daily history polling, nullable fields and Parquet ZSTD read/write.
 - Keep raw Parquet off `main` and Pages. DuckDB/PyArrow query a selected subset of the archive and join by exact `index_name` plus valid time.
 - Keep deployment gated until a real API contract test, end-to-end Git publish fixture and artifact-size measurement are successful.
@@ -274,9 +281,10 @@ The probe uses actual public Deribit responses to check:
 
 - BTC/ETH/PAXG derivative catalog by `base_currency` and `kind`, separately
   tracking listed/active option/future counts and settlement-currency partitions;
-  PAXG option zero-listing is informational **only** under the narrow
-  configured `allow_unlisted` exception and a verified empty instrument list;
-  an incomplete quote for any listed contract remains blocking.
+  the configured **BTC/ETH** option scope is validated strictly, while
+  PAXG's catalog is observed only for index/futures discovery and diagnostics.
+  PAXG options are not part of the current option-chain completeness gate; any
+  incomplete quote for a listed BTC/ETH option remains blocking.
 - Exact referenced `price_index` names cross-checked against the source
   `get_index_price_names` catalog; never invent an `_usd` or `_usdc` fallback.
 - A complete hourly option/index/futures/DVOL batch rendered in-memory as
@@ -308,10 +316,10 @@ proof PAXG options can never be offered. We must not invent a PAXG option
 chain, silently relabel USDC contracts as PAXG or declare the full configured
 dataset complete.
 
-The probe now reports blocking capability gaps explicitly, and can measure
-available underlying subsets in memory while leaving overall contract status
-**blocked** (nonzero exit code). This gives a reproducible BTC/ETH size
-baseline without misrepresenting it as BTC/ETH/PAXG completeness. Missing
+During the initial broad-scope run, the probe reported PAXG option capability
+as blocking. Under the **current BTC/ETH-only option scope**, the source probe
+can complete successfully while still measuring PAXG indexes and futures;
+its option-chain size and coverage must be labeled BTC/ETH only. Missing
 futures are reported separately as product absence. It still performs no Git
 Data API mutation and can never initialize the orphan archive.
 
@@ -342,12 +350,7 @@ eth_usdc 1,697; paxg_usdc 758. Historical-volatility response length
 was 383 observations each for BTC and ETH. That earlier run sampled two records per index; **full pagination has not yet
 been verified by a successful run of the updated probe**.
 
-The **blocking gap** is PAXG `option_chain` with zero listed option contracts
-at this point in time. The probe intentionally excluded only that unavailable
-asset/dataset from its *measurement*, reported the gap explicitly, and exited
-nonzero. This does not permit the production collector to silently omit PAXG:
-an explicit capability status and fail-closed dataset policy are still needed
-before enabling scheduled collection.
+**Historical gate at the time of this early run:** PAXG had zero listed options while `option_chain` still included PAXG. The initial probe correctly failed closed then. **This is no longer a blocking requirement:** the target config now excludes PAXG from option-chain collection and retains it in index/delivery/futures. The present probe verifies exactly the configured per-dataset scope without treating an omitted PAXG option file as lost data.
 
 Earlier read-only run [42057994689](https://github.com/BestNathan/nasset/actions/runs/42057994689)
 also revealed the inclusive source DVOL end boundary. Querying the final
