@@ -16,7 +16,7 @@ from typing import Any
 
 import pyarrow.parquet as pq
 
-from .deribit_archive import ArchiveConfig, load_config
+from .deribit_archive import ArchiveConfig, Dataset, load_config
 from .deribit_client import DeribitClient, DeribitError
 from .deribit_pipeline import prepare_live_batch
 
@@ -78,11 +78,29 @@ def probe(config: ArchiveConfig, client: DeribitClient,
     if unsupported_indexes:
         raise DeribitError(f"instrument references unsupported index names: {sorted(unsupported_indexes)}")
 
-    required_options = next((ds.underlyings for ds in live.datasets
-                             if ds.name == "option_chain"), ())
-    for asset in required_options:
-        if coverage[asset]["options_listed"] == 0:
-            raise DeribitError(f"{asset}: no option instruments listed; verify capability before enabling")
+    capability_gaps: list[dict[str, str]] = []
+    sample_datasets = []
+    for ds in live.datasets:
+        eligible = []
+        for asset in ds.underlyings:
+            reason = None
+            if ds.name == "option_chain" and coverage[asset]["options_listed"] == 0:
+                reason = "no option instruments listed"
+            elif ds.name == "futures_curve" and coverage[asset]["futures_listed"] == 0:
+                reason = "no futures listed"
+            elif ds.name == "index_price" and not coverage[asset]["referenced_indexes"]:
+                reason = "no instrument-referenced index"
+            if reason:
+                capability_gaps.append({
+                    "underlying": asset, "dataset": ds.name, "reason": reason,
+                    "severity": "informational" if ds.name == "futures_curve" else "blocking",
+                })
+            else:
+                eligible.append(asset)
+        if eligible:
+            sample_datasets.append(Dataset(
+                ds.name, ds.interval_hours, tuple(eligible), ds.options,
+            ))
 
     # Cache source catalog responses during the second snapshot read to avoid
     # unnecessarily repeating rate-limited get_instruments in the same probe.
@@ -95,18 +113,29 @@ def probe(config: ArchiveConfig, client: DeribitClient,
         return original_call(method, **params)
 
     snapshot_client = DeribitClient(transport=cached_transport)
-    batch = prepare_live_batch(live, snapshot_client, observed)
     sizes: dict[str, dict[str, int]] = defaultdict(
         lambda: {"parquet_parts": 0, "rows": 0, "zstd_bytes": 0}
     )
-    for path, payload in sorted(batch.parts.items()):
-        if not path.endswith(".parquet"):
-            raise DeribitError("live probe unexpectedly generated non-Parquet data")
-        file_meta = pq.read_metadata(BytesIO(payload))
-        dataset = file_meta.metadata[b"dataset"].decode()
-        sizes[dataset]["parquet_parts"] += 1
-        sizes[dataset]["rows"] += file_meta.num_rows
-        sizes[dataset]["zstd_bytes"] += len(payload)
+    source_failures: dict[str, str] = {}
+    for ds in sample_datasets:
+        # Isolate source-contract failures by dataset, without pretending
+        # that a partial source sample is a publishable unified batch.
+        try:
+            batch = prepare_live_batch(
+                ArchiveConfig(config.branch, config.compression_level, (ds,)),
+                snapshot_client, observed,
+            )
+        except (DeribitError, ValueError) as exc:
+            source_failures[ds.name] = str(exc)
+            continue
+        for path, payload in sorted(batch.parts.items()):
+            if not path.endswith(".parquet"):
+                raise DeribitError("live probe unexpectedly generated non-Parquet data")
+            file_meta = pq.read_metadata(BytesIO(payload))
+            dataset = file_meta.metadata[b"dataset"].decode()
+            sizes[dataset]["parquet_parts"] += 1
+            sizes[dataset]["rows"] += file_meta.num_rows
+            sizes[dataset]["zstd_bytes"] += len(payload)
 
     # Check representative native history/delivery contracts without full
     # multi-year backfill; daily ingestion is tested separately offline.
@@ -114,11 +143,19 @@ def probe(config: ArchiveConfig, client: DeribitClient,
     for asset in ("BTC", "ETH"):
         if asset not in scope:
             continue
-        series = client.historical_volatility(asset)
+        try:
+            series = client.historical_volatility(asset)
+        except DeribitError as exc:
+            source_failures[f"historical_volatility/{asset}"] = str(exc)
+            continue
         history[asset] = {"observations": len(series)}
     settlement_samples = {}
     for index in sorted(price_indexes):
-        response = client.call("get_delivery_prices", index_name=index, offset=0, count=2)
+        try:
+            response = client.call("get_delivery_prices", index_name=index, offset=0, count=2)
+        except DeribitError as exc:
+            source_failures[f"delivery_price/{index}"] = str(exc)
+            continue
         if (not isinstance(response, dict) or not isinstance(response.get("data"), list)
                 or type(response.get("records_total")) is not int):
             raise DeribitError(f"delivery {index}: malformed sample")
@@ -140,9 +177,14 @@ def probe(config: ArchiveConfig, client: DeribitClient,
             "sample_rows": len(response["data"]),
         }
 
+    blocked = any(g["severity"] == "blocking" for g in capability_gaps) or bool(source_failures)
     return {
+        "status": "blocked" if blocked else "ok",
+        "capability_gaps": capability_gaps,
+        "source_failures": source_failures,
+        "measured_scope": {ds.name: sorted(ds.underlyings) for ds in sample_datasets},
         "checked_at": observed.isoformat(),
-        "utc_slot": batch.slot.isoformat(),
+        "utc_slot": observed.replace(minute=0, second=0, microsecond=0).isoformat(),
         "underlyings": coverage,
         "supported_index_names_count": len(supported),
         "referenced_index_names": sorted(price_indexes),
@@ -160,7 +202,9 @@ def main() -> None:
     args = parser.parse_args()
     config = load_config(args.config)
     result = probe(config, DeribitClient(), datetime.now(timezone.utc))
-    print(json.dumps(result, sort_keys=True))
+    print(json.dumps(result, sort_keys=True), flush=True)
+    if result["status"] != "ok":
+        parser.exit(1, "Deribit live source contract incomplete; production remains disabled\n")
 
 
 if __name__ == "__main__":
