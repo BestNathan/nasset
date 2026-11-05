@@ -14,7 +14,9 @@ from test_deribit_client import fixture_transport
 def config(*names):
     datasets = {
         name: {"enabled": True, "interval_hours": 1,
-               **({"index_names": "auto"} if name == "index_price" else {})}
+               **({"index_names": "auto"} if name == "index_price" else {}),
+               **({"resolution": "3600", "underlyings": ["BTC", "ETH"]}
+                  if name == "volatility_index" else {})}
         for name in names
     }
     return parse_config({
