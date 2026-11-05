@@ -1,11 +1,13 @@
 """No-network end-to-end preparation tests: REST -> typed Parquet parts."""
 from datetime import datetime, timezone
 from io import BytesIO
+from dataclasses import replace
+import json
 
 import pyarrow.parquet as pq
 import pytest
 
-from nasset.deribit_archive import parse_config
+from nasset.deribit_archive import ArchiveConfig, parse_config
 from nasset.deribit_client import DeribitClient, DeribitError
 from nasset.deribit_pipeline import prepare_live_batch
 from test_deribit_client import fixture_transport
@@ -180,3 +182,75 @@ def test_shared_index_name_across_base_assets_fails_closed():
     with pytest.raises(DeribitError, match="index maps to multiple base assets: btc_usd"):
         prepare_live_batch(config("index_price"), DeribitClient(transport=transport), now)
     assert "get_index_price" in calls
+
+
+def _without_paxg_options(method, params):
+    rows = fixture_transport(method, params)
+    if method == "get_instruments" and params["kind"] == "option":
+        return [row for row in rows if row["base_currency"] != "PAXG"]
+    if method == "get_book_summary_by_currency" and params["kind"] == "option":
+        return [row for row in rows if row["instrument_name"] != "PAXG-OPT"]
+    return rows
+
+
+def _with_acknowledged_unlisted_paxg(*names):
+    cfg = config(*names)
+    return ArchiveConfig(cfg.branch, cfg.compression_level, tuple(
+        replace(ds, options={**ds.options, "allow_unlisted": ["PAXG"]})
+        if ds.name == "option_chain" else ds
+        for ds in cfg.datasets
+    ))
+
+
+def test_unlisted_paxg_option_is_recorded_in_atomic_hourly_coverage():
+    now = datetime.now(timezone.utc).replace(minute=59, second=0, microsecond=0)
+    batch = prepare_live_batch(
+        _with_acknowledged_unlisted_paxg("option_chain", "index_price", "futures_curve"),
+        DeribitClient(transport=_without_paxg_options), now,
+    )
+    assert batch.unlisted == (("option_chain", "PAXG"),)
+    assert len(batch.parts) == 6  # BTC/ETH options, BTC/PAXG futures, index, coverage
+    assert not any("/option_chain/PAXG/" in p for p in batch.parts)
+    assert any("/futures_curve/PAXG/" in p for p in batch.parts)
+    path = next(p for p in batch.parts if "/coverage/" in p)
+    document = json.loads(batch.parts[path])
+    assert document["snapshot_slot_at"] == batch.slot.isoformat()
+    assert document["unlisted"] == [
+        {"dataset": "option_chain", "underlying": "PAXG", "listed_count": 0}
+    ]
+    for path, payload in batch.parts.items():
+        if path.endswith(".parquet"):
+            assert pq.read_table(BytesIO(payload)).num_rows > 0
+
+
+def test_unlisted_paxg_option_requires_explicit_config_policy():
+    now = datetime.now(timezone.utc).replace(minute=59, second=0, microsecond=0)
+    with pytest.raises(DeribitError, match="no listed contracts"):
+        prepare_live_batch(config("option_chain", "futures_curve"),
+                           DeribitClient(transport=_without_paxg_options), now)
+
+
+def test_allow_unlisted_cannot_hide_missing_quotes_for_a_listed_contract():
+    def missing_paxg_quote(method, params):
+        rows = fixture_transport(method, params)
+        if method == "get_book_summary_by_currency" and params["kind"] == "option":
+            return [r for r in rows if r["instrument_name"] != "PAXG-OPT"]
+        return rows
+
+    now = datetime.now(timezone.utc).replace(minute=59, second=0, microsecond=0)
+    with pytest.raises(DeribitError, match="missing book summaries"):
+        prepare_live_batch(
+            _with_acknowledged_unlisted_paxg("option_chain", "futures_curve"),
+            DeribitClient(transport=missing_paxg_quote), now,
+        )
+
+
+def test_option_only_allows_absent_paxg_after_complete_catalog_check():
+    now = datetime.now(timezone.utc).replace(minute=59, second=0, microsecond=0)
+    batch = prepare_live_batch(
+        _with_acknowledged_unlisted_paxg("option_chain"),
+        DeribitClient(transport=_without_paxg_options), now,
+    )
+    assert batch.unlisted == (("option_chain", "PAXG"),)
+    assert sum(p.endswith(".parquet") for p in batch.parts) == 2
+    assert sum(p.endswith(".json") for p in batch.parts) == 1
