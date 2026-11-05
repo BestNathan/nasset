@@ -223,3 +223,17 @@ def test_event_marker_conflict_is_not_overwritten():
     with pytest.raises(PublishConflict, match="partial or conflicting"):
         publisher(session).publish({P1: PARTS[P1], EVENT_PATH: EVENT_BLOB})
     assert all(method == "GET" for method, _, _ in session.calls)
+
+
+def test_delivery_calendar_marker_is_a_supported_immutable_path():
+    key = "deribit/event_keys/delivery_price/btc_usd/2023/11/14/2023-11-14.key"
+    blob = (b'deribit-event-v1\n'
+            b'{"dataset":"delivery_price","date":"2023-11-14",'
+            b'"identity":"btc_usd","value":42000.0}')
+    session = FakeSession(existing=True)
+    result = publisher(session).publish({P1: PARTS[P1], key: blob})
+    assert result.created
+    assert len([path for method, path, _ in session.calls if path == "/git/blobs"]) == 2
+    sha = git_blob_sha(blob)
+    session = FakeSession(existing=True, paths={key: sha})
+    assert publisher(session).existing((key,)) == {key: sha}
