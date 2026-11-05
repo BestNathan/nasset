@@ -17,6 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.3,<9"]
+archive = ["pyarrow>=18,<24"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
