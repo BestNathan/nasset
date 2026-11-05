@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Mapping
 import time
+import math
 
 import requests
 
@@ -95,6 +96,33 @@ class DeribitClient:
         if not rows:
             raise DeribitError(f"DVOL {currency}: no candles for requested hour")
         return tuple(sorted(rows, key=lambda row: row["event_timestamp"]))
+
+    def historical_volatility(self, currency: str) -> tuple[dict[str, Any], ...]:
+        """Read native historical volatility observations without inventing timestamps.
+
+        The endpoint returns [timestamp_ms, volatility] pairs. This adapter
+        deliberately returns the full source series: the archive layer must
+        determine genuinely new events before creating immutable daily parts.
+        """
+        if currency not in {"BTC", "ETH"}:
+            raise ValueError(f"historical volatility unsupported asset: {currency}")
+        result = self.call("get_historical_volatility", currency=currency)
+        if not isinstance(result, list):
+            raise DeribitError(f"historical volatility {currency}: expected list")
+        seen: dict[int, float] = {}
+        for observation in result:
+            if (not isinstance(observation, (list, tuple)) or len(observation) != 2
+                    or type(observation[0]) is not int
+                    or type(observation[1]) not in (int, float)):
+                raise DeribitError(f"historical volatility {currency}: invalid observation")
+            timestamp, value = observation
+            if timestamp <= 0 or not math.isfinite(value) or value < 0:
+                raise DeribitError(f"historical volatility {currency}: invalid value")
+            if timestamp in seen and seen[timestamp] != value:
+                raise DeribitError(f"historical volatility {currency}: conflicting timestamp")
+            seen[timestamp] = value
+        return tuple(dict(base_currency=currency, event_timestamp=timestamp,
+                          volatility=value) for timestamp, value in sorted(seen.items()))
 
     def instruments(self, *, kinds: tuple[str, ...] = ("option", "future")) -> tuple[dict[str, Any], ...]:
         found: dict[str, dict[str, Any]] = {}
