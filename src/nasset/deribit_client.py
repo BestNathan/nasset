@@ -233,15 +233,21 @@ class DeribitClient:
             raise ValueError("at least one dataset is required")
         # Index-only collection still needs contract metadata to discover real
         # price_index identifiers, but must not fetch any book summaries.
-        catalog = self.instruments(kinds=kinds or ("option", "future"))
+        # Index discovery must be independent of requested quote kinds: an
+        # underlying may have futures/index references but no listed options
+        # (currently PAXG). Fetch metadata, never unrequested book summaries.
+        catalog = self.instruments(kinds=("option", "future") if include_indices else kinds)
         scope = set(underlyings)
         allow = set(allow_unlisted)
         if not allow.issubset(scope):
             raise ValueError("allow_unlisted must be within requested underlying scope")
-        selected = {i["instrument_name"]: i for i in catalog
-                    if i.get("base_currency") in scope and (not kinds or i.get("kind") in kinds)}
+        relevant = {i["instrument_name"]: i for i in catalog
+                    if i.get("base_currency") in scope}
+        selected = {name: i for name, i in relevant.items()
+                    if i.get("kind") in kinds}
         for asset in underlyings:
-            if not any(i.get("base_currency") == asset for i in selected.values()):
+            if not any(i.get("base_currency") == asset for i in
+                       (relevant.values() if include_indices else selected.values())):
                 # This is allowed only for an explicitly acknowledged listed-
                 # contract absence, verified against the full source catalog.
                 # Missing quotes for *listed* contracts remain fatal below.
@@ -284,7 +290,7 @@ class DeribitClient:
             (options if instrument["kind"] == "option" else futures).append(row)
         indices: list[dict[str, Any]] = []
         if include_indices:
-            names = {i.get("price_index") for i in selected.values() if i.get("price_index")}
+            names = {i.get("price_index") for i in relevant.values() if i.get("price_index")}
             # underlying_index can refer to a *future*, not a price index;
             # never blindly pass it to get_index_price.
             if not names:
@@ -303,6 +309,6 @@ class DeribitClient:
                     raise DeribitError(f"get_index_price({name}): invalid estimated delivery price")
                 indices.append({"index_name": name, **value})
         return MarketSnapshot(
-            captured_at=datetime.now(timezone.utc), instruments=tuple(selected.values()),
+            captured_at=datetime.now(timezone.utc), instruments=tuple(relevant.values() if include_indices else selected.values()),
             options=tuple(options), futures=tuple(futures), indices=tuple(indices),
         )
