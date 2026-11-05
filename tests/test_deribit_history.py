@@ -30,7 +30,8 @@ def config(*names):
     })
 
 
-NOW = datetime(2026, 11, 5, 12, 37, tzinfo=timezone.utc)
+# Live client timestamps use wall-clock UTC; fixture slots must use the same hour.
+NOW = datetime.now(timezone.utc).replace(minute=37, second=0, microsecond=0)
 OLD = 1700000000000
 LATE = 1699900000000
 
