@@ -171,10 +171,11 @@ def test_insufficient_quotes_leave_surface_missing_and_bad_iv_ignored():
     assert market["expiries"][0]["nodes"]["10c"] is None
     assert market["expiries"][0]["rr25"] is None
     assert market["expiries"][0]["nodes"]["atm"] is not None
+    expected_valid=len(only)
     bad=dict(only[0],mark_iv=float("nan"))
     latest["option_chain"].append(bad)
     market2=derive_analytics(latest,reference_data(),INSTANT.isoformat())["assets"]["BTC"]["markets"]["inverse"]
-    assert market2["contracts"]==len(only)
+    assert market2["contracts"]==expected_valid
 
 
 def test_annualized_realized_vol_never_interpolates_missing_hours():
