@@ -113,6 +113,9 @@ def main():
         assert not replay.created and replay.commit_sha == first.commit_sha
 
         next_receipt, next_parts = make_parts(config, at + timedelta(hours=1), 2.0)
+        # The previous native event key is immutable and already published;
+        # the next incremental poll must not resubmit the historical marker.
+        next_parts = {p: data for p, data in next_parts.items() if not p.endswith(".key")}
         racer = RacingPublisher(repo, token, scratch, session=session)
         try:
             racer.publish(next_parts, slot_receipt=next_receipt)
