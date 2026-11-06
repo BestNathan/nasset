@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Manage one AWS EventBridge Scheduler -> Lambda -> GitHub workflow dispatcher.
 
-Local AWS profile/role supplies deployment credentials. No long-lived AWS keys
-or GitHub tokens are accepted as CLI arguments or stored in the repository.
+AWS environment credentials or a local profile supply provisioning access.
+The GitHub PAT may be securely copied from an environment-injected GitHub
+Actions Secret to SSM SecureString; never pass credentials as CLI arguments.
 No AWS infrastructure is deployed on import or during 'plan'.
 """
 from __future__ import annotations
@@ -12,6 +13,7 @@ import base64
 import hashlib
 import io
 import json
+import os
 import re
 import sys
 import time
@@ -21,6 +23,28 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MANAGED_TAG = {"Key": "nasset-managed", "Value": "deribit-scheduler"}
 GH_REPO = "BestNathan/nasset"
+CLOUD_POLICY_PATH = ROOT / "config" / "aws-deribit-scheduler.json"
+
+
+def validate_cloud_policy(value: object) -> dict:
+    """Strict GitOps control; changing the *file* is the deployment intent."""
+    if not isinstance(value, dict) or set(value) != {"version", "state", "revision"}:
+        raise ValueError("invalid AWS scheduler deployment policy")
+    if type(value["version"]) is not int or value["version"] != 1:
+        raise ValueError("invalid AWS scheduler deployment policy version")
+    if value["state"] not in ("not_deployed", "disabled", "enabled"):
+        raise ValueError("invalid AWS scheduler deployment policy state")
+    if type(value["revision"]) is not int or value["revision"] < 0:
+        raise ValueError("invalid AWS scheduler deployment policy revision")
+    if value["state"] != "not_deployed" and value["revision"] == 0:
+        raise ValueError("invalid AWS scheduler deployment policy: active state requires positive revision")
+    return value
+
+
+def load_cloud_policy(path: Path = CLOUD_POLICY_PATH) -> dict:
+    return validate_cloud_policy(json.loads(path.read_text(encoding="utf-8")))
+
+
 
 
 def resources(prefix: str) -> dict[str, str]:
@@ -132,6 +156,36 @@ def ensure_secret(ssm, name: str) -> None:
         raise RuntimeError("GitHub token parameter must be a SecureString")
     if parameter.get("Tier") not in (None, "Standard"):
         raise RuntimeError("use a Standard SSM parameter to avoid advanced-tier charges")
+
+
+
+def sync_token_from_secret(ssm, name: str, token: str) -> dict:
+    """Provision/rotate the GitHub PAT from a protected Actions secret.
+
+    Does not emit token bytes in argv, subprocesses, logs, or return values.
+    Uses default aws/ssm KMS encryption and forces the Standard parameter tier.
+    Rejects taking over a pre-existing non-SecureString or advanced parameter.
+    """
+    if not re.fullmatch(r"/[A-Za-z0-9_./-]+", name):
+        raise ValueError("invalid SSM parameter name")
+    if not isinstance(token, str) or not token or token != token.strip():
+        raise ValueError("NASSET_GITHUB_DISPATCH_TOKEN missing or contains whitespace")
+    if any(ch.isspace() for ch in token) or len(token.encode("utf-8")) > 4096:
+        raise ValueError("invalid GitHub dispatch token format or length")
+    try:
+        existing = ssm.get_parameter(Name=name, WithDecryption=False)["Parameter"]
+    except ssm.exceptions.ParameterNotFound:
+        existing = None
+    if existing is not None:
+        if existing.get("Type") != "SecureString" or existing.get("Tier") not in (None, "Standard"):
+            raise RuntimeError("refusing to replace a non-standard SecureString parameter")
+    ssm.put_parameter(
+        Name=name, Value=token, Type="SecureString", Tier="Standard",
+        Description="nasset GitHub workflow_dispatch PAT; managed from GitHub Secrets",
+        Overwrite=existing is not None,
+    )
+    return {"ssm_parameter": name, "type": "SecureString",
+            "tier": "Standard", "updated": existing is not None}
 
 
 def create_or_update_lambda(client, config: dict, role_arn: str,
@@ -311,9 +365,31 @@ def destroy(args, session, account: str, partition: str) -> dict:
     return {"deleted": names["schedule"], "note": "SSM SecureString and CloudWatch logs retained"}
 
 
+def reconcile_cloud_policy(args, session, account: str, partition: str,
+                           policy: dict) -> dict:
+    """Converge AWS resources to Git-tracked desired state from GitHub Actions."""
+    state = validate_cloud_policy(policy)["state"]
+    if state == "not_deployed":
+        return {"status": "skipped", "reason": "AWS deployment not requested"}
+    secret = os.getenv("NASSET_GITHUB_DISPATCH_TOKEN", "")
+    # Fail before any mutation if the required protected GitHub Secret is absent.
+    if not secret:
+        raise RuntimeError("GitHub Secret NASSET_GITHUB_DISPATCH_TOKEN is required")
+    ssm = session.client("ssm")
+    sync_token_from_secret(ssm, args.token_parameter, secret)
+    installed = apply(args, session, account, partition)
+    desired = "ENABLED" if state == "enabled" else "DISABLED"
+    status = schedule_state(args, session, account, partition, desired)
+    if status["state"] != desired:
+        raise RuntimeError("AWS schedule failed to reconcile desired state")
+    return {"status": "reconciled", "desired_state": state,
+            "schedule_state": status["state"], "region": installed["region"],
+            "schedule": status["schedule"], "function_arn": installed["function_arn"]}
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["plan", "apply", "status", "enable", "disable", "destroy"])
+    parser.add_argument("command", choices=["plan", "reconcile", "sync-token", "apply", "status", "enable", "disable", "destroy"])
     parser.add_argument("--profile", help="AWS CLI profile; avoid pasting AK/SK into chat or code")
     parser.add_argument("--region", default="ap-southeast-1")
     parser.add_argument("--prefix", default="nasset-deribit")
@@ -338,6 +414,9 @@ def main(argv=None):
                   "initial_schedule_state": "DISABLED",
                   "github_repo": GH_REPO, "github_workflow": "deribit-archive.yml",
                   "dry_run": True}
+    elif args.command == "reconcile" and load_cloud_policy()["state"] == "not_deployed":
+        # First merge must be safe when no GitHub Secrets or AWS account exist.
+        result = {"status": "skipped", "reason": "AWS deployment not requested"}
     else:
         import boto3
 
@@ -347,7 +426,15 @@ def main(argv=None):
         session = boto3.Session(**kw)
         identity = session.client("sts").get_caller_identity()
         account, partition = identity["Account"], identity["Arn"].split(":")[1]
-        if args.command == "apply":
+        if args.command == "reconcile":
+            result = reconcile_cloud_policy(args, session, account, partition,
+                                            load_cloud_policy())
+        elif args.command == "sync-token":
+            result = sync_token_from_secret(
+                session.client("ssm"), args.token_parameter,
+                os.getenv("NASSET_GITHUB_DISPATCH_TOKEN", ""),
+            )
+        elif args.command == "apply":
             result = apply(args, session, account, partition)
         elif args.command in ("enable", "disable", "status"):
             result = schedule_state(args, session, account, partition, {

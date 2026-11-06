@@ -1,5 +1,101 @@
 # AWS external scheduler for Deribit
 
+## Recommended: deploy entirely from GitHub Actions (no local setup)
+
+The AWS deployment is now **fully operated through GitHub Actions**.
+You do not need Python, AWS CLI, `boto3`, a git checkout, or an AWS profile on
+your own computer.
+
+### Once: store three GitHub repository Secrets
+
+Open **[nasset → Settings → Secrets and variables → Actions](https://github.com/BestNathan/nasset/settings/secrets/actions)**,
+select **New repository secret**, and add exactly these:
+
+| Repository secret | Value |
+| --- | --- |
+| `NASSET_AWS_ACCESS_KEY_ID` | Access Key ID of a dedicated AWS IAM deployment identity |
+| `NASSET_AWS_SECRET_ACCESS_KEY` | Secret Access Key of that same AWS IAM identity |
+| `NASSET_GITHUB_DISPATCH_TOKEN` | Fine-grained GitHub PAT for **BestNathan/nasset**, repository **Actions: write** only |
+
+For **temporary** AWS credentials, optionally also set
+`NASSET_AWS_SESSION_TOKEN` and rotate the full set before it expires.
+Use AWS standard/commercial Region `ap-southeast-1` (Singapore), as configured
+in the workflow. **Never use an AWS root account access key**, paste credentials
+into chat, PRs, issue comments, YAML, or Git-tracked files, and never put a PAT
+into the existing `market-data` archive branch.
+
+The AWS IAM identity needs **provisioning** permissions for these explicitly
+named resources (not just Lambda invocation): IAM role create/get/tag/update
+trust/put inline policy/pass/delete, Lambda create/get/tag/configure/update/
+delete, EventBridge Scheduler create/get/update/delete, SSM GetParameter and
+PutParameter, CloudWatch Logs CreateLogGroup and PutRetentionPolicy, and STS
+GetCallerIdentity. In the AWS console, grant these through a scoped permission
+policy restricted to the `nasset-deribit-*` roles/function/schedule,
+`/nasset/deribit/github-token` parameter, and matching log group.
+`iam:PassRole` should be limited to the two nasset-managed roles and the
+Lambda/Scheduler service principals. Consider a GitHub OIDC role instead of
+long-lived AK/SK when you can configure the initial AWS trust relationship.
+
+### Two-stage GitOps activation
+
+The source of truth is
+[`config/aws-deribit-scheduler.json`](../config/aws-deribit-scheduler.json),
+initially:
+
+```json
+{"version": 1, "state": "not_deployed", "revision": 0}
+```
+
+It contains **no secrets or AWS credentials**. After you add the GitHub Secrets,
+tell the maintainer (or ask ChatGPT to update the repository via its GitHub
+connector) to commit these two successive changes:
+
+1. Set `state="disabled"`, `revision=1`. The push to `main` launches
+   [AWS Deribit Scheduler deployment](https://github.com/BestNathan/nasset/actions/workflows/aws-deribit-deploy.yml).
+   The job takes the GitHub PAT *only* from a protected GitHub Secret and
+   creates/rotates a **Standard SSM SecureString** via `boto3`. It then
+   creates or updates IAM Roles, Lambda and an **initially DISABLED** AWS
+   EventBridge schedule. No scheduler firing yet.
+2. Verify the first workflow succeeded and inspected the AWS account/region/
+   disabled schedule. Then set `state="enabled"`, `revision=2`. A second
+   push to `main` runs the same workflow, converges the resources, and
+   enables `cron(12 * * * ? *)` in UTC.
+
+Further edits to Lambda code or the manager script do not automatically
+deploy cloud changes; **reconciliation is deliberate**. Commit the control
+file with `revision += 1`, or use the manual **Run workflow → reconcile**
+operation from GitHub Actions. This also rotates the stored PAT when the
+GitHub Secret has been updated.
+
+To pause an active schedule, commit `state="disabled"` and increment the
+revision (declarative), or use **Run workflow → disable** immediately as an
+emergency override. The manual **status** operation checks AWS state without
+needing the GitHub PAT secret. The manual **destroy** operation requires the
+schedule to have been disabled first *and* a separate
+`confirm_destroy=true` control; SSM PAT and CloudWatch logs are retained.
+Changing to `not_deployed` simply stops reconciling and does **not** tear
+down an existing deployed schedule; use `disabled` or confirmed `destroy`.
+
+**Only `main` may deploy**. The deployment workflow has no PR trigger and
+`contents: read` only, runs on GitHub-hosted ephemeral runners, never logs
+the AWS Secret or GitHub PAT, and does not place the PAT in Lambda environment
+variables. SSM encrypts it with AWS-managed `aws/ssm` by default.
+A missing secret fails the deployment; adding Secrets alone does **not**
+create cloud resources or enable a schedule.
+
+Once enabled, each successful Scheduler invocation sends
+`workflow_dispatch {publish:true, slot:UTC-hour}` to the existing
+`deribit-archive.yml`; it does not perform the collection inside AWS.
+Verify the **GitHub publish job** and the resulting **market-data receipt**.
+An HTTP 204 is only proof that GitHub accepted the dispatch, not that
+the archive was committed.
+
+### Optional: using the script directly
+
+The commands below are retained for AWS operators who prefer AWS profiles,
+but **local execution is not required** by the GitHub Secrets deployment path.
+
+
 This is an **optional, separately deployed external trigger** for the existing
 GitHub Actions Deribit archive. It does not move market data or archival
 permissions to AWS. AWS only sends a pinned `workflow_dispatch` request;
@@ -19,8 +115,9 @@ EventBridge Scheduler (UTC minute 12)
 
 The deploy script manages a dedicated Scheduler execution role, a dedicated
 Lambda execution role, the function, one UTC schedule, and a 14-day retention
-policy for its CloudWatch log group. It **does not** create or manage the SSM
-secret, GitHub token, or AWS account credentials.
+policy for its CloudWatch log group. Its GitHub Actions reconcile operation
+**also creates/rotates the SSM SecureString from a GitHub Secret**; it never
+creates or manages an AWS account credential.
 
 - Use an AWS **commercial** region with internet access to `api.github.com`;
   the default is `ap-southeast-1`. No VPC configuration is needed.
@@ -101,7 +198,8 @@ command. `apply` preserves an existing schedule's state instead of
 silently enabling something the operator paused.
 
 The AWS management script uses **boto3** but the nasset collector does not
-depend on boto3. No new GitHub repository secrets or actions are required.
+depend on boto3. For the no-local cloud deployment workflow, the three GitHub
+repository Secrets listed above are required.
 
 ## Confirm actual dispatch, not just scheduled invocation
 
