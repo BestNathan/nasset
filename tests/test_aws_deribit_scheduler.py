@@ -58,11 +58,11 @@ def test_limited_aws_iam_permissions_for_scheduler_and_lambda():
     policy = S["scheduler_permissions"]("arn:aws:lambda:region:account:function:only-one")
     assert policy["Statement"][0]["Action"] == "lambda:InvokeFunction"
     assert policy["Statement"][0]["Resource"].endswith(":only-one")
-    source = "arn:aws:scheduler:ap-southeast-1:123456789012:schedule/default/my-schedule"
+    source = "arn:aws:scheduler:ap-southeast-1:123456789012:schedule-group/default"
     trust = S["assume_role_policy"](
         "scheduler.amazonaws.com", source_account="123456789012", source_arn=source,
     )
-    assert trust["Statement"][0]["Condition"]["ArnLike"]["aws:SourceArn"] == source
+    assert trust["Statement"][0]["Condition"]["StringEquals"]["aws:SourceArn"] == source
     role = S["lambda_permissions"]("ap-southeast-1", "123456789012", "aws",
                                     "my-function", "/nasset/deribit/github-token")
     statements = role["Statement"]
