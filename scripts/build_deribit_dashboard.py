@@ -50,9 +50,19 @@ class GitHubReader:
         return response.json()
 
     def tree(self):
-        data = self.get("/git/trees/market-data?recursive=1")
+        # Pin a commit and its tree so concurrent hourly writes cannot mix versions.
+        ref = self.get("/git/ref/heads/market-data")
+        commit_sha = ref["object"]["sha"]
+        if not re.fullmatch(r"[a-f0-9]{40}", commit_sha):
+            raise ArchiveIntegrityError("invalid market-data commit")
+        commit = self.get("/git/commits/" + commit_sha)
+        tree_sha = commit["tree"]["sha"]
+        if not re.fullmatch(r"[a-f0-9]{40}", tree_sha):
+            raise ArchiveIntegrityError("invalid market-data tree")
+        data = self.get("/git/trees/" + tree_sha + "?recursive=1")
         if data.get("truncated") or not isinstance(data.get("tree"), list):
             raise ArchiveIntegrityError("archive Git tree is truncated or missing")
+        data["archive_commit"] = commit_sha
         return data
 
     def blob(self, sha: str) -> bytes:
@@ -185,7 +195,7 @@ def project_archive(reader: GitHubReader, *, max_slots: int = MAX_SLOTS, now: da
         "version": 1,
         "source": "Deribit / verified GitHub market-data archive",
         "generated_at": generated_at,
-        "archive_commit": tree.get("sha"),
+        "archive_commit": tree.get("archive_commit"),
         "latest_slot": slots[-1]["slot"] if slots else None,
         "slots": [],
         "history": [],
