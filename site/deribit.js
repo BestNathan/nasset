@@ -324,7 +324,7 @@ function futuresView(){
   const summary='<div class="quant-grid equal"><article class="quant-panel">'+
     panelTitle("Annualized forward basis","TERM STRUCTURE · % PA")+
     futuresChart+'<p class="quant-surface-note">仅匹配相同计价体系的参考指数，且到期剩余≥1天。图中可能出现非均匀到期节点；不把永续资金费率混入基差。</p></article>'+
-    '<article class="quant-panel">'+panelTitle("Forward market snapshot","'+(state.family==="inverse"?"INVERSE / USD":"LINEAR / USDC")+'")+
+    '<article class="quant-panel">'+panelTitle("Forward market snapshot",state.family==="inverse"?"INVERSE / USD":"LINEAR / USDC")+
     '<div class="quant-risk-stats">'+
       riskNumber("Reference spot","匹配对应币种指数",finite(a?.reference_price)?"$"+money(a.reference_price,2):"—")+
       riskNumber("Tradable maturities","具备年化基差观测的合约",int(current.length))+
