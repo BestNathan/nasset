@@ -114,7 +114,7 @@ For delivery events store `index_name`, native event date/time, native delivery 
 ## Frequency and Git commit policy
 
 - `interval_hours` is per dataset, v1 accepts divisors of 24: `1, 2, 3, 4, 6, 8, 12, 24`. Target defaults: chain, index price, DVOL and futures curve **1h**, delivery and historical-volatility increments **24h**. `option_chain`, DVOL and historical volatility are explicitly BTC/ETH only; PAXG remains in index, delivery and futures collection.
-- One workflow scheduled at `37 * * * *` UTC. A **cheap due-gate** reads config to select all enabled due datasets before installing costly dependencies. The archive runs hourly for P0/P1 live market snapshots, and daily for historical event datasets; a polling frequency must not be confused with the native event sampling interval. `workflow_dispatch` can trigger an idempotent manual run.
+- One workflow scheduled at `43 * * * *` UTC. A **cheap due-gate** reads config to select all enabled due datasets before installing costly dependencies. The archive runs hourly for P0/P1 live market snapshots, and daily for historical event datasets; a polling frequency must not be confused with the native event sampling interval. `workflow_dispatch` can trigger an idempotent manual run.
 - Poll all configured underlyings/indices required by each due dataset, validate them, then publish all due datasets/underlyings together in **one Git commit per due UTC slot**. Commit count is determined by the union of dataset schedules, not by the number of assets. With current 1h + 24h schedule this is **24 commits/day (~8,760/year)**, not one commit per dataset or per asset.
 - Parquet files are immutable and named for the scheduled slot/day; late capture retains actual `captured_at` and must not pretend to be a historical observation. Delayed historical **events** have their own timestamp and idempotent event key.
 - Every due snapshot dataset must be complete before the batch commit; do not partially publish successful BTC if ETH/index retrieval fails. Delivery event datasets may correctly produce no files if no new event occurred.
@@ -383,7 +383,7 @@ A repeat run verifies the exact receipt, reads only the small Git manifest blob 
 
 GitHub repository size at final pre-merge review: **1,577 KiB** (all refs). Continue monitoring actual repository/object-store growth; review around 3 GiB. This is not a measured long-term hourly/historical backfill size baseline.
 
-**Activation is now a versioned, repository-controlled gate**: `config/market-data-activation.json` starts with `enabled: false` (JSON boolean). The main-only workflow validates exact `version/branch/enabled` types and defaults fail-closed; the scheduled path performs only a cheap checkout and gate check when disabled. Manual dry-run still works without publishing, but manual write requires both checked-in `enabled: true` and `publish=true`. A commit toggling this one file to `enabled: true` on main triggers an initial controlled publish after a read-only live probe and complete batch preparation; subsequent UTC minute-37 scheduled runs use the same gate. Reverting the config to false disables later writes. This approach replaces the inaccessible repository Actions Variable with an auditable Git commit, without weakening main-only, complete-batch, or non-force Git Data API protection. Never force push or rewrite archived history; rolling retention remains deferred.
+**Activation is now a versioned, repository-controlled gate**: `config/market-data-activation.json` starts with `enabled: false` (JSON boolean). The main-only workflow validates exact `version/branch/enabled` types and defaults fail-closed; the scheduled path performs only a cheap checkout and gate check when disabled. Manual dry-run still works without publishing, but manual write requires both checked-in `enabled: true` and `publish=true`. A commit toggling this one file to `enabled: true` on main triggers an initial controlled publish after a read-only live probe and complete batch preparation; subsequent UTC minute-43 scheduled runs use the same gate. Reverting the config to false disables later writes. This approach replaces the inaccessible repository Actions Variable with an auditable Git commit, without weakening main-only, complete-batch, or non-force Git Data API protection. Never force push or rewrite archived history; rolling retention remains deferred.
 
 
 ### Production activation verified — 2026-11-06, 03:00 UTC
@@ -415,10 +415,15 @@ after the disabled-by-default gate was validated and merged in [PR #8](https://g
   succeeded with `status: already_published`, `source was not queried`,
   and no additional Git commit: production branch HEAD stayed at `56226db`.
 
-The UTC minute-37 schedule remains active, using the same config/receipt and
+The UTC minute-43 schedule remains active, using the same config/receipt and
 append-only Git Data API semantics for future slots. An operator can stop future
 publications by committing `"enabled": false` in the activation JSON. Routine
 monitoring must verify actual run status, missing UTC slots, repo size growth
 and the first due daily historical-volatility/delivery-price increments; these
 have not been fabricated or considered already archived. There is no retention
 squash, force update, or production history rewrite.
+
+
+### GitHub `schedule` registration diagnosis — 2026-11-06
+
+The 03:37, 04:37 and 05:37 UTC scheduled ticks did **not** produce a workflow run, despite the default-branch workflow existing, cron being syntactically valid, activation enabled, and successful `push` and manual (`workflow_dispatch`) runs. The manual run at 05:06 UTC (run 42166461117) was a read-only dry-run and **did not** publish the 05:00 slot. GitHub's documented scheduler may delay/drop events, and modifying cron is a documented way to reactivate a deactivated schedule; the workflow's internal active/disabled state was not obtainable through the available connector, so the exact provider-side cause remains unproven. To explicitly refresh registration without changing collector semantics, the schedule changed from minute 37 to minute 43 (one run per hour). Verify an actual `event=schedule` run, its successful publication and the next immutable hour-slot commit before marking periodic execution healthy; a successful `push`/manual run is not equivalent. The gap in captured hourly snapshots is real and cannot be reconstructed exactly from a later live quote. If the registration refresh does not produce a new `schedule` event, inspect the workflow enable/disable state in GitHub Actions and escalate a scheduler-delivery incident with the affected UTC timestamps. This change does not alter the production activation gate, Git API concurrency behavior, or the existing Daily/Pages workflows.

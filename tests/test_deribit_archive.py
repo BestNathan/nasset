@@ -111,7 +111,7 @@ def test_hourly_archive_workflow_is_explicitly_publish_gated():
     # BaseLoader retains the literal 'on' key under YAML 1.1 rather than
     # interpreting it as boolean True.
     root = yaml.load(workflow.read_text(), Loader=yaml.BaseLoader)
-    assert root["on"]["schedule"] == [{"cron": "37 * * * *"}]
+    assert root["on"]["schedule"] == [{"cron": "43 * * * *"}]
     assert root["on"]["workflow_dispatch"]["inputs"]["publish"]["default"] == "false"
     assert root["permissions"]["contents"] == "read"
     jobs = root["jobs"]

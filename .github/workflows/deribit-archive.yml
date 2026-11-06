@@ -7,8 +7,9 @@ on:
     # Archive and Daily data commits never match this trigger.
     paths: [config/market-data-activation.json]
   schedule:
-    # UTC 37 minutes after each hour.
-    - cron: "37 * * * *"
+    # UTC 43 minutes after each hour. Cron changed from 37 on 2026-11-06
+    # to explicitly refresh scheduled workflow registration after missing ticks.
+    - cron: "43 * * * *"
   workflow_dispatch:
     inputs:
       publish:

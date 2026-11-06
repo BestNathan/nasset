@@ -42,7 +42,7 @@ def test_activation_step_writes_boolean_output(tmp_path, monkeypatch):
 
 def test_workflow_fails_closed_until_activation_commit():
     root = yaml.load(WORKFLOW.read_text(), Loader=yaml.BaseLoader)
-    assert root["on"]["schedule"] == [{"cron": "37 * * * *"}]
+    assert root["on"]["schedule"] == [{"cron": "43 * * * *"}]
     assert root["on"]["push"] == {
         "branches": ["main"], "paths": ["config/market-data-activation.json"]
     }
