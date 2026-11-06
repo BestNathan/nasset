@@ -181,10 +181,28 @@ def test_deployment_workflow_only_runs_on_main_without_pr_or_schedule():
     job = root["jobs"]["manage"]
     assert "github.repository == 'BestNathan/nasset'" in job["if"]
     assert "github.ref == 'refs/heads/main'" in job["if"]
-    assert "permissions" not in job  # inherits workflow-level contents:read
-    assert job["env"]["AWS_ACCESS_KEY_ID"] == "${{ secrets.NASSET_AWS_ACCESS_KEY_ID }}"
-    assert job["env"]["AWS_SECRET_ACCESS_KEY"] == "${{ secrets.NASSET_AWS_SECRET_ACCESS_KEY }}"
+    assert job["permissions"] == {"contents": "read", "id-token": "write"}
+    assert job["env"]["AWS_DEFAULT_REGION"] == "ap-southeast-1"
+    assert "AWS_ACCESS_KEY_ID" not in job["env"]
+    assert "AWS_SECRET_ACCESS_KEY" not in job["env"]
     steps = job["steps"]
+    aws = next(step for step in steps if step.get("name", "").startswith("Obtain short-lived"))
+    assert aws["uses"] == "aws-actions/configure-aws-credentials@v6.3.0"
+    assert aws["if"] == "${{ steps.gate.outputs.need_aws == 'true' }}"
+    assert aws["with"]["role-to-assume"] == "${{ vars.NASSET_AWS_DEPLOY_ROLE_ARN }}"
+    assert aws["with"]["aws-region"] == "ap-southeast-1"
+    assert aws["with"]["unset-current-credentials"] == "true"
+    assert aws["with"]["mask-aws-account-id"] == "true"
+    gate = next(step for step in steps if step.get("id") == "gate")
+    assert "not_deployed" in gate["run"]
+    assert 'echo "need_aws=false" >> "$GITHUB_OUTPUT"' in gate["run"]
+    assert "NASSET_AWS_DEPLOY_ROLE_ARN" in next(
+        step for step in steps if step.get("name", "").startswith("Validate OIDC")
+    )["run"]
+    assert "NASSET_AWS_ACCESS_KEY_ID" not in WORKFLOW.read_text()
+    assert "NASSET_AWS_SECRET_ACCESS_KEY" not in WORKFLOW.read_text()
+    assert "NASSET_AWS_SESSION_TOKEN" not in WORKFLOW.read_text()
+
     assert any(s.get("name") == "Reconcile Git-managed desired state" and
                s["env"]["NASSET_GITHUB_DISPATCH_TOKEN"] ==
                "${{ secrets.NASSET_GITHUB_DISPATCH_TOKEN }}"
@@ -204,3 +222,64 @@ def test_management_workflow_has_only_exact_allowed_operations():
     ]
     assert manual["confirm_destroy"]["default"] == "false"
     assert "pull_request" not in root["on"]
+
+
+def test_cloudformation_bootstrap_scopes_oidc_to_main_only_and_no_wildcard_iam():
+    from yaml.nodes import ScalarNode, SequenceNode, MappingNode
+    class CfnLoader(yaml.SafeLoader):
+        pass
+
+    def cfn_tag(loader, suffix, node):
+        if isinstance(node, ScalarNode):
+            return loader.construct_scalar(node)
+        if isinstance(node, SequenceNode):
+            return loader.construct_sequence(node)
+        if isinstance(node, MappingNode):
+            return loader.construct_mapping(node)
+        raise AssertionError("unsupported YAML node")
+
+    CfnLoader.add_multi_constructor("!", cfn_tag)
+    template = yaml.load(
+        (ROOT / "aws/oidc-bootstrap.yml").read_text(), Loader=CfnLoader,
+    )
+    assert template["Parameters"]["OidcProviderExists"]["Default"] == "false"
+    assert template["Resources"]["GitHubOidcProvider"]["Type"] == "AWS::IAM::OIDCProvider"
+    assert template["Resources"]["GitHubOidcProvider"]["Properties"]["Url"] == (
+        "https://token.actions.githubusercontent.com"
+    )
+    assert template["Resources"]["GitHubOidcProvider"]["Properties"]["ClientIdList"] == [
+        "sts.amazonaws.com"
+    ]
+    role = template["Resources"]["NassetDeribitDeployRole"]["Properties"]
+    assert role["RoleName"] == "nasset-deribit-github-deployer"
+    trust = role["AssumeRolePolicyDocument"]["Statement"]
+    assert len(trust) == 1
+    assert trust[0]["Action"] == "sts:AssumeRoleWithWebIdentity"
+    assert trust[0]["Condition"]["StringEquals"] == {
+        "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+        "token.actions.githubusercontent.com:sub": "repo:BestNathan/nasset:ref:refs/heads/main",
+    }
+    grants = role["Policies"][0]["PolicyDocument"]["Statement"]
+    assert len(grants) == 6
+    for grant in grants:
+        assert grant["Effect"] == "Allow"
+        assert grant["Resource"] not in ("*", ["*"])
+        assert "iam:CreateOpenIDConnectProvider" not in grant["Action"]
+    pass_roles = next(g for g in grants if g["Sid"] == "PassOnlyRuntimeRolesToTargetServices")
+    assert pass_roles["Action"] == "iam:PassRole"
+    assert pass_roles["Condition"]["StringEquals"]["iam:PassedToService"] == [
+        "lambda.amazonaws.com", "scheduler.amazonaws.com",
+    ]
+    assert all("nasset-deribit-" in arn for arn in pass_roles["Resource"])
+    assert template["Outputs"]["DeploymentRoleArn"]["Description"].find(
+        "NASSET_AWS_DEPLOY_ROLE_ARN"
+    ) != -1
+
+
+def test_cloudformation_template_does_not_require_aws_static_keys():
+    source = (ROOT / "aws/oidc-bootstrap.yml").read_text()
+    for identifier in (
+        "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "NASSET_AWS_SECRET_ACCESS_KEY",
+        "AdministratorAccess", "repo:BestNathan/nasset:pull_request",
+    ):
+        assert identifier not in source

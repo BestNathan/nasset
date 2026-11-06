@@ -1,0 +1,120 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  One-time, main-branch-only GitHub OIDC trust and minimal AWS deployment role
+  for BestNathan/nasset Deribit Scheduler. No AWS access keys or GitHub PATs.
+Parameters:
+  OidcProviderExists:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: >-
+      Set true ONLY if this AWS account already has the
+      token.actions.githubusercontent.com OIDC identity provider.
+Conditions:
+  CreateGitHubOidcProvider: !Equals [!Ref OidcProviderExists, 'false']
+Resources:
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateGitHubOidcProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+  NassetDeribitDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: nasset-deribit-github-deployer
+      Description: Short-lived deployment credentials for nasset main branch only
+      MaxSessionDuration: 3600
+      Tags:
+        - Key: nasset-managed
+          Value: deribit-oidc-bootstrap
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If
+                - CreateGitHubOidcProvider
+                - !Ref GitHubOidcProvider
+                - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com'
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: 'repo:BestNathan/nasset:ref:refs/heads/main'
+      Policies:
+        - PolicyName: nasset-deribit-aws-deployer
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ManageExactRuntimeRoles
+                Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:GetRole
+                  - iam:ListRoleTags
+                  - iam:TagRole
+                  - iam:UpdateAssumeRolePolicy
+                  - iam:PutRolePolicy
+                  - iam:DeleteRolePolicy
+                  - iam:DeleteRole
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/nasset-deribit-lambda-role'
+                  - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/nasset-deribit-scheduler-role'
+              - Sid: PassOnlyRuntimeRolesToTargetServices
+                Effect: Allow
+                Action: iam:PassRole
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/nasset-deribit-lambda-role'
+                  - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/nasset-deribit-scheduler-role'
+                Condition:
+                  StringEquals:
+                    iam:PassedToService:
+                      - lambda.amazonaws.com
+                      - scheduler.amazonaws.com
+              - Sid: ManageExactDispatcherFunction
+                Effect: Allow
+                Action:
+                  - lambda:CreateFunction
+                  - lambda:GetFunction
+                  - lambda:GetFunctionConfiguration
+                  - lambda:ListTags
+                  - lambda:TagResource
+                  - lambda:UpdateFunctionCode
+                  - lambda:UpdateFunctionConfiguration
+                  - lambda:PutFunctionEventInvokeConfig
+                  - lambda:DeleteFunction
+                Resource: !Sub 'arn:${AWS::Partition}:lambda:ap-southeast-1:${AWS::AccountId}:function:nasset-deribit-github-dispatcher'
+              - Sid: ManageExactHourlySchedule
+                Effect: Allow
+                Action:
+                  - scheduler:CreateSchedule
+                  - scheduler:GetSchedule
+                  - scheduler:UpdateSchedule
+                  - scheduler:DeleteSchedule
+                Resource: !Sub 'arn:${AWS::Partition}:scheduler:ap-southeast-1:${AWS::AccountId}:schedule/default/nasset-deribit-hourly'
+              - Sid: ManageOnlyGitHubTokenSecureParameter
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:PutParameter
+                Resource: !Sub 'arn:${AWS::Partition}:ssm:ap-southeast-1:${AWS::AccountId}:parameter/nasset/deribit/github-token'
+              - Sid: ManageOnlyDispatcherLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:PutRetentionPolicy
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:logs:ap-southeast-1:${AWS::AccountId}:log-group:/aws/lambda/nasset-deribit-github-dispatcher'
+                  - !Sub 'arn:${AWS::Partition}:logs:ap-southeast-1:${AWS::AccountId}:log-group:/aws/lambda/nasset-deribit-github-dispatcher:*'
+Outputs:
+  DeploymentRoleArn:
+    Description: >-
+      Copy this non-secret ARN to GitHub repository Actions VARIABLE
+      NASSET_AWS_DEPLOY_ROLE_ARN (not to GitHub Secrets).
+    Value: !GetAtt NassetDeribitDeployRole.Arn
+  AllowedGithubSubject:
+    Value: 'repo:BestNathan/nasset:ref:refs/heads/main'
+  RuntimeRegion:
+    Value: ap-southeast-1
