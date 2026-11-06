@@ -24,3 +24,25 @@ jobs:
       - run: pytest -q
       - name: Check static Deribit viewer syntax
         run: node --check site/deribit.js
+      - name: Compute model surfaces from actual verified market-data archive
+        if: github.repository == 'BestNathan/nasset'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          python scripts/build_deribit_dashboard.py --output /tmp/deribit-research.json
+          python - <<'PY'
+          import json
+          data = json.load(open("/tmp/deribit-research.json"))
+          assert data["analytics"]["model"].startswith("Black-76")
+          assets = data["analytics"]["assets"]
+          for coin in ("BTC", "ETH"):
+              products = assets[coin]["markets"]
+              assert products
+              assert any(p["contracts"] > 20 for p in products.values())
+              assert any(p["expiries"] for p in products.values())
+              assert any(p["risk"]["metrics"]["gamma_1pct_usd"] > 0 for p in products.values())
+          assert assets["PAXG"]["markets"] == {}
+          assert assets["PAXG"]["futures"]
+          print("live archive research projection:", data["analytics"]["as_of"])
+          PY
