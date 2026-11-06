@@ -371,7 +371,7 @@ def test_invalid_coverage_manifest_is_rejected_before_git_mutation(mutate):
     session = FakeSession()
     data = json.dumps(mutate(COVERAGE_BODY)).encode()
     with pytest.raises(ValueError, match="coverage|unlisted"):
-        publisher(session).publish({P1: PARTS[P1], COVERAGE_PATH: data},
+        publisher(session).publish({**PARTS, COVERAGE_PATH: data},
                                    slot_receipt=SLOT_RECEIPT)
     assert session.calls == []
 
