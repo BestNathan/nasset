@@ -216,7 +216,7 @@ def project_archive(reader: GitHubReader, *, max_slots: int = MAX_SLOTS, now: da
             "receipt_path": slot["receipt_path"], "manifest_path": slot["manifest_path"],
         }
         result["slots"].append(summary)
-        point = {"slot": iso, "indexes": [], "dvol": []}
+        point = {"slot": iso, "indexes": [], "dvol": [], "futures": []}
         for path, sha in sorted(entries.items()):
             if path.startswith("deribit/index_price/") and path.endswith(".parquet"):
                 rows = parquet_rows(reader, sha, "index_price", iso, INDEX_FIELDS)
@@ -227,9 +227,11 @@ def project_archive(reader: GitHubReader, *, max_slots: int = MAX_SLOTS, now: da
             if iso == latest_slot and path.startswith("deribit/option_chain/") and path.endswith(".parquet"):
                 rows = parquet_rows(reader, sha, "option_chain", iso, OPTION_FIELDS)
                 result["latest"]["option_chain"].extend(rows)
-            if iso == latest_slot and path.startswith("deribit/futures_curve/") and path.endswith(".parquet"):
+            if path.startswith("deribit/futures_curve/") and path.endswith(".parquet"):
                 rows = parquet_rows(reader, sha, "futures_curve", iso, FUTURE_FIELDS)
-                result["latest"]["futures_curve"].extend(rows)
+                point["futures"].extend(rows)
+                if iso == latest_slot:
+                    result["latest"]["futures_curve"].extend(rows)
         if not point["indexes"] or not point["dvol"]:
             raise ArchiveIntegrityError("hourly index or DVOL dataset missing: " + iso)
         result["history"].append(point)
@@ -238,6 +240,10 @@ def project_archive(reader: GitHubReader, *, max_slots: int = MAX_SLOTS, now: da
     if not result["latest"]["option_chain"] or not result["latest"]["futures_curve"]:
         raise ArchiveIntegrityError("latest option/futures coverage incomplete")
     result["analytics"] = derive_analytics(result["latest"], result["history"], latest_slot)
+    # Historic curve rows are consumed into the analytics; browsers need only
+    # compact tenor grids, not another copy of every native futures quote.
+    for point in result["history"]:
+        point.pop("futures", None)
     return result
 
 
