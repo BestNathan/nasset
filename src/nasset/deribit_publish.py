@@ -25,7 +25,12 @@ _EVENT_PREFIX = b"deribit-event-v1\n"
 _COVERAGE_PATH = re.compile(
     r"^deribit/coverage/[0-9]{4}/[0-9]{2}/[0-9]{2}/[0-9]{4}\.json$"
 )
-_SLOT_PATH = re.compile(r"^deribit/slots/[0-9]{4}/[0-9]{2}/[0-9]{2}/[0-9]{4}\.receipt$")
+_SLOT_PATH = re.compile(r"^deribit/slots/[0-9]{4}/[0-9]{2}/[0-9]{2}/[0-9]{4}\\.receipt$")
+_MANIFEST_PATH = re.compile(
+    r"^deribit/slots/[0-9]{4}/[0-9]{2}/[0-9]{2}/[0-9]{4}\\.manifest\\.json$"
+)
+_MANIFEST_PREFIX = b"deribit-manifest-v1\\n"
+_MANIFEST_MAX_BYTES = 16 * 1024 * 1024
 # Avoid one POST /git/blobs for each of thousands of historical event keys.
 # Git Trees support inline UTF-8 content for blobs. Build small tree batches,
 # and move the ref only after every batch succeeds.
@@ -46,6 +51,36 @@ class PublishResult:
 def git_blob_sha(data: bytes) -> str:
     header = f"blob {len(data)}".encode() + bytes([0])
     return hashlib.sha1(header + data).hexdigest()
+
+
+def slot_manifest(parts: Mapping[str, bytes], receipt_path: str) -> tuple[str, bytes]:
+    """Inventory every *actual* published blob, including conditional events.
+
+    The deterministic receipt is retained for no-source preflight. The
+    manifest is created only when the batch is ready, and committed atomically
+    with all artifacts and that receipt.
+    """
+    if not _SLOT_PATH.fullmatch(receipt_path) or receipt_path not in parts:
+        raise ValueError("slot manifest needs its receipt")
+    manifest_path = receipt_path.removesuffix(".receipt") + ".manifest.json"
+    if manifest_path in parts:
+        raise ValueError("slot manifest path is reserved")
+    document = {
+        "version": 1,
+        "provider": "deribit",
+        "receipt_path": receipt_path,
+        "receipt_sha": git_blob_sha(parts[receipt_path]),
+        "artifacts": [
+            {"path": path, "sha": git_blob_sha(data)}
+            for path, data in sorted(parts.items())
+        ],
+    }
+    payload = _MANIFEST_PREFIX + json.dumps(
+        document, sort_keys=True, separators=(",", ":"), allow_nan=False,
+    ).encode("utf-8")
+    if len(payload) > _MANIFEST_MAX_BYTES:
+        raise ValueError("slot manifest exceeds Git blob safety limit")
+    return manifest_path, payload
 
 
 class GitHubArchivePublisher:
@@ -167,11 +202,79 @@ class GitHubArchivePublisher:
             return False
         if existing[path] != git_blob_sha(payload):
             raise PublishConflict(f"UTC slot already published with different due config: {path}")
-        required = self._receipt_required_paths(payload)
-        present = self._existing_paths(commit["tree"]["sha"], required)
-        if set(present) != set(required):
-            raise PublishConflict("UTC slot receipt exists but mandatory Parquet paths are absent")
+        self._verify_published_slot(commit["tree"]["sha"], path, payload)
         return True
+
+    def _verify_published_slot(self, root_tree: str, receipt_path: str,
+                               receipt_payload: bytes) -> None:
+        """Fail closed unless EVERY committed artifact retains its Git blob SHA.
+
+        Only the small versioned manifest blob is downloaded. Parquet files are
+        never fetched; historical markers are validated via bounded year trees.
+        This also rejects receipts predating the manifest contract.
+        """
+        manifest_path = receipt_path.removesuffix(".receipt") + ".manifest.json"
+        manifest_sha = self._existing_paths(root_tree, (manifest_path,)).get(manifest_path)
+        if manifest_sha is None:
+            raise PublishConflict("UTC slot receipt exists without artifact manifest")
+        blob = self._api("GET", f"/git/blobs/{manifest_sha}")
+        try:
+            if not isinstance(blob, dict) or blob.get("encoding") != "base64":
+                raise ValueError("unexpected manifest blob encoding")
+            encoded = blob["content"]
+            if not isinstance(encoded, str):
+                raise ValueError("invalid manifest blob content")
+            payload = base64.b64decode("".join(encoded.split()), validate=True)
+            if (len(payload) > _MANIFEST_MAX_BYTES
+                    or git_blob_sha(payload) != manifest_sha
+                    or not payload.startswith(_MANIFEST_PREFIX)):
+                raise ValueError("invalid manifest blob checksum/prefix")
+            manifest = json.loads(payload[len(_MANIFEST_PREFIX):])
+        except (ValueError, KeyError, TypeError, base64.binascii.Error) as exc:
+            raise PublishConflict("malformed or corrupted UTC slot artifact manifest") from exc
+        if (not isinstance(manifest, dict)
+                or manifest.get("version") != 1
+                or manifest.get("provider") != "deribit"
+                or manifest.get("receipt_path") != receipt_path
+                or manifest.get("receipt_sha") != git_blob_sha(receipt_payload)):
+            raise PublishConflict("UTC slot artifact manifest disagrees with receipt")
+        artifacts = manifest.get("artifacts")
+        if not isinstance(artifacts, list) or not artifacts:
+            raise PublishConflict("UTC slot artifact manifest has no inventory")
+        expected: dict[str, str] = {}
+        stamp = receipt_path.removeprefix("deribit/slots/").removesuffix(".receipt")
+        for item in artifacts:
+            if not isinstance(item, dict) or set(item) != {"path", "sha"}:
+                raise PublishConflict("invalid UTC slot artifact inventory entry")
+            path, sha = item["path"], item["sha"]
+            if (not isinstance(path, str) or not isinstance(sha, str)
+                    or not re.fullmatch(r"[0-9a-f]{40}", sha)
+                    or not (_PATH.fullmatch(path) or _EVENT_KEY_PATH.fullmatch(path)
+                            or _COVERAGE_PATH.fullmatch(path) or _SLOT_PATH.fullmatch(path))
+                    or path in expected):
+                raise PublishConflict("invalid/duplicate UTC slot artifact inventory path")
+            if (_PATH.fullmatch(path) and not path.endswith(stamp + ".parquet")):
+                raise PublishConflict("manifest contains a Parquet file from another UTC slot")
+            if (_COVERAGE_PATH.fullmatch(path) and not path.endswith(stamp + ".json")):
+                raise PublishConflict("manifest contains coverage from another UTC slot")
+            if _SLOT_PATH.fullmatch(path) and path != receipt_path:
+                raise PublishConflict("manifest contains a different UTC slot receipt")
+            expected[path] = sha
+        if list(expected) != sorted(expected):
+            raise PublishConflict("UTC slot artifact inventory is not canonical")
+        if (expected.get(receipt_path) != git_blob_sha(receipt_payload)
+                or not set(self._receipt_required_paths(receipt_payload)).issubset(expected)
+                or not any(_PATH.fullmatch(path) for path in expected)):
+            raise PublishConflict("UTC slot manifest omits mandatory receipt/snapshots")
+        event_keys = tuple(path for path in expected if _EVENT_KEY_PATH.fullmatch(path))
+        other = tuple(path for path in expected if path not in event_keys)
+        actual = self._existing_paths(root_tree, other)
+        actual.update(self._existing_event_paths(root_tree, event_keys))
+        mismatches = [path for path, sha in expected.items() if actual.get(path) != sha]
+        if mismatches:
+            raise PublishConflict(
+                f"UTC slot artifact missing/changed ({len(mismatches)}): {mismatches[0]}"
+            )
 
     @staticmethod
     def _receipt_required_paths(payload: bytes) -> tuple[str, ...]:
@@ -244,15 +347,18 @@ class GitHubArchivePublisher:
             if any(not path.endswith(suffix + ".json")
                    for path in parts if _COVERAGE_PATH.fullmatch(path)):
                 raise ValueError("coverage manifest must belong to the receipt UTC slot")
-            if receipt_path in parts:
-                raise ValueError("receipt path must not appear in raw parts")
+            if receipt_path in parts or any(_MANIFEST_PATH.fullmatch(p) for p in parts):
+                raise ValueError("receipt/manifest path must not appear in raw parts")
             if not set(self._receipt_required_paths(receipt_payload)).issubset(parts):
                 raise ValueError("batch missing mandatory snapshot Parquet paths")
             parts = {**parts, receipt_path: receipt_payload}
+            manifest_path, manifest_payload = slot_manifest(parts, receipt_path)
+            parts = {**parts, manifest_path: manifest_payload}
         for path, payload in parts.items():
             if not isinstance(path, str) or not (_PATH.fullmatch(path) or _EVENT_KEY_PATH.fullmatch(path)
                                                   or _SLOT_PATH.fullmatch(path)
-                                                  or _COVERAGE_PATH.fullmatch(path)):
+                                                  or _COVERAGE_PATH.fullmatch(path)
+                                                  or _MANIFEST_PATH.fullmatch(path)):
                 raise ValueError(f"invalid archive path: {path!r}")
             if not isinstance(payload, bytes):
                 raise ValueError(f"invalid archive payload: {path}")
@@ -263,6 +369,9 @@ class GitHubArchivePublisher:
                 self._validate_receipt(path, payload)
             elif _COVERAGE_PATH.fullmatch(path):
                 self._validate_coverage(path, payload)
+            elif _MANIFEST_PATH.fullmatch(path):
+                if not payload.startswith(_MANIFEST_PREFIX):
+                    raise ValueError(f"invalid artifact manifest: {path}")
             elif not payload.startswith(b"PAR1") or not payload.endswith(b"PAR1"):
                 raise ValueError(f"not a Parquet payload: {path}")
         if not any(path.endswith(".parquet") for path in parts):
@@ -294,8 +403,7 @@ class GitHubArchivePublisher:
         if slot_receipt is not None and receipt_path in paths:
             if paths[receipt_path] != git_blob_sha(receipt_payload):
                 raise PublishConflict("UTC slot was already completed with a different configuration")
-            if not all(path in paths for path in names):
-                raise PublishConflict("UTC slot receipt exists but requested archive paths are absent")
+            self._verify_published_slot(base_tree, receipt_path, receipt_payload)
             # Receipt is an atomic commit marker. The same config and paths
             # represent an already published slot even if a later capture
             # produces different Parquet bytes and timestamps.
@@ -369,7 +477,7 @@ class GitHubArchivePublisher:
         for path in sorted(parts):
             entry = {"path": path, "mode": "100644", "type": "blob"}
             if (_EVENT_KEY_PATH.fullmatch(path) or _SLOT_PATH.fullmatch(path)
-                    or _COVERAGE_PATH.fullmatch(path)):
+                    or _COVERAGE_PATH.fullmatch(path) or _MANIFEST_PATH.fullmatch(path)):
                 try:
                     entry["content"] = parts[path].decode("utf-8")
                 except UnicodeDecodeError as exc:

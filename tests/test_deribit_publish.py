@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from nasset.deribit_publish import GitHubArchivePublisher, PublishConflict, git_blob_sha
+from nasset.deribit_publish import GitHubArchivePublisher, PublishConflict, git_blob_sha, slot_manifest
 
 P1 = "deribit/index_price/2026/11/05/0400.parquet"
 P2 = "deribit/option_chain/BTC/2026/11/05/0400.parquet"
@@ -25,11 +25,13 @@ class Response:
 
 
 class FakeSession:
-    def __init__(self, *, existing=False, paths=None, truncated=False, fail_patch=False):
+    def __init__(self, *, existing=False, paths=None, truncated=False, fail_patch=False,
+                 blobs=None):
         self.headers = {}
         self.calls = []
         self.existing = existing
         self.paths = paths or {}
+        self.blobs = blobs or {}
         self.truncated = truncated
         self.fail_patch = fail_patch
 
@@ -60,6 +62,13 @@ class FakeSession:
                 else:
                     children[first] = {"path": first, "type": "blob", "sha": sha}
             return Response(data={"truncated": self.truncated, "tree": list(children.values())})
+        if method == "GET" and path.startswith("/git/blobs/"):
+            import base64
+            blob = self.blobs.get(path.removeprefix("/git/blobs/"))
+            if blob is None:
+                return Response(404)
+            return Response(data={"encoding": "base64",
+                                  "content": base64.b64encode(blob).decode()})
         if path == "/git/blobs" and method == "POST":
             import base64
             return Response(data={"sha": git_blob_sha(base64.b64decode(json["content"]))})
@@ -255,13 +264,25 @@ SLOT_RECEIPT = (
 )
 
 
+def published_slot_session(raw=None, receipt=SLOT_RECEIPT, *, missing=()):
+    """Emulate an existing Git slot with its versioned immutable manifest."""
+    all_parts = {**(PARTS if raw is None else raw), receipt[0]: receipt[1]}
+    manifest_path, manifest_payload = slot_manifest(all_parts, receipt[0])
+    all_parts[manifest_path] = manifest_payload
+    return FakeSession(
+        existing=True,
+        paths={p: git_blob_sha(data) for p, data in all_parts.items() if p not in missing},
+        blobs={git_blob_sha(manifest_payload): manifest_payload},
+    )
+
+
 def test_slot_receipt_is_atomic_with_multiple_parquet_parts():
     session = FakeSession()
     result = publisher(session).publish(PARTS, slot_receipt=SLOT_RECEIPT)
     assert result.created
     tree = next(body for method, path, body in session.calls if path == "/git/trees")
     assert set(item["path"] for item in tree["tree"]) == {
-        *PARTS, SLOT_RECEIPT[0],
+        *PARTS, SLOT_RECEIPT[0], SLOT_RECEIPT[0].replace(".receipt", ".manifest.json"),
     }
     assert len([x for x in session.calls if x[1] == "/git/blobs"]) == 2
     assert next(x for x in tree["tree"] if x["path"] == SLOT_RECEIPT[0])["content"] == SLOT_RECEIPT[1].decode("utf-8")
@@ -270,9 +291,7 @@ def test_slot_receipt_is_atomic_with_multiple_parquet_parts():
 
 
 def test_slot_receipt_does_not_require_stable_capture_timestamp_on_retry():
-    previous = {path: git_blob_sha(data) for path, data in PARTS.items()}
-    previous[SLOT_RECEIPT[0]] = git_blob_sha(SLOT_RECEIPT[1])
-    session = FakeSession(existing=True, paths=previous)
+    session = published_slot_session()
     later = {P1: b"PAR1different-dataPAR1", P2: b"PAR1later-capturePAR1"}
     result = publisher(session).publish(later, slot_receipt=SLOT_RECEIPT)
     assert not result.created
@@ -284,9 +303,10 @@ def test_completed_slot_is_metadata_only_and_rejects_new_config():
     previous = {SLOT_RECEIPT[0]: git_blob_sha(SLOT_RECEIPT[1])}
     session = FakeSession(existing=True, paths=previous)
     archive = publisher(session)
-    with pytest.raises(PublishConflict, match="mandatory Parquet paths"):
+    with pytest.raises(PublishConflict, match="artifact manifest"):
         archive.completed_slot(SLOT_RECEIPT)
-    session.paths.update({path: git_blob_sha(data) for path, data in PARTS.items()})
+    session = published_slot_session()
+    archive = publisher(session)
     assert archive.completed_slot(SLOT_RECEIPT) is True
     assert all(method == "GET" for method, _, _ in session.calls)
     with pytest.raises(PublishConflict, match="different due config"):
@@ -296,11 +316,8 @@ def test_completed_slot_is_metadata_only_and_rejects_new_config():
 
 
 def test_receipt_with_missing_parquet_path_aborts_instead_of_claiming_success():
-    session = FakeSession(existing=True, paths={
-        P1: git_blob_sha(PARTS[P1]),
-        SLOT_RECEIPT[0]: git_blob_sha(SLOT_RECEIPT[1]),
-    })
-    with pytest.raises(PublishConflict, match="requested archive paths"):
+    session = published_slot_session(missing=(P2,))
+    with pytest.raises(PublishConflict, match="artifact missing/changed"):
         publisher(session).publish(PARTS, slot_receipt=SLOT_RECEIPT)
     assert all(method == "GET" for method, _, _ in session.calls)
 
@@ -356,6 +373,7 @@ def test_unlisted_coverage_manifest_is_committed_atomically_with_parquet():
     tree = next(data for _, path, data in session.calls if path == "/git/trees")
     assert {entry["path"] for entry in tree["tree"]} == {
         *PARTS, COVERAGE_PATH, SLOT_RECEIPT[0],
+        SLOT_RECEIPT[0].replace(".receipt", ".manifest.json"),
     }
     assert sum(path == "/git/commits" for _, path, _ in session.calls) == 1
 
@@ -462,4 +480,76 @@ def test_history_scoped_year_truncation_fails_closed():
     session = FakeSession(existing=True, paths={EVENT_PATH: "exists"}, truncated=True)
     with pytest.raises(RuntimeError, match="truncated"):
         publisher(session).existing((EVENT_PATH,))
+    assert all(method == "GET" for method, _, _ in session.calls)
+
+
+
+def test_manifest_records_exact_futures_coverage_and_history_inventory():
+    futures = "deribit/futures_curve/PAXG/2026/11/05/0400.parquet"
+    extra = {**PARTS, futures: b"PAR1futurePAR1",
+             COVERAGE_PATH: COVERAGE_PAYLOAD, EVENT_PATH: EVENT_BLOB}
+    items = {**extra, SLOT_RECEIPT[0]: SLOT_RECEIPT[1]}
+    path, manifest = slot_manifest(items, SLOT_RECEIPT[0])
+    record = json.loads(manifest.removeprefix(b"deribit-manifest-v1\\n"))
+    assert path == "deribit/slots/2026/11/05/0400.manifest.json"
+    assert [row["path"] for row in record["artifacts"]] == sorted(items)
+    assert {row["path"]: row["sha"] for row in record["artifacts"]} == {
+        k: git_blob_sha(v) for k, v in items.items()
+    }
+    session = published_slot_session(raw=extra)
+    assert publisher(session).completed_slot(SLOT_RECEIPT)
+    assert all(method == "GET" for method, _, _ in session.calls)
+
+
+@pytest.mark.parametrize("missing", [
+    "deribit/futures_curve/PAXG/2026/11/05/0400.parquet",
+    COVERAGE_PATH,
+    EVENT_PATH,
+    P1,
+])
+def test_manifest_preflight_fails_closed_for_each_missing_artifact(missing):
+    raw = {**PARTS,
+           "deribit/futures_curve/PAXG/2026/11/05/0400.parquet": b"PAR1futurePAR1",
+           COVERAGE_PATH: COVERAGE_PAYLOAD, EVENT_PATH: EVENT_BLOB}
+    session = published_slot_session(raw=raw, missing=(missing,))
+    with pytest.raises(PublishConflict, match="artifact missing/changed"):
+        publisher(session).completed_slot(SLOT_RECEIPT)
+    assert all(method == "GET" for method, _, _ in session.calls)
+
+
+def test_manifest_preflight_detects_wrong_sha_without_any_publish():
+    session = published_slot_session()
+    session.paths[P1] = "0" * 40
+    with pytest.raises(PublishConflict, match="artifact missing/changed"):
+        publisher(session).completed_slot(SLOT_RECEIPT)
+    assert all(method == "GET" for method, _, _ in session.calls)
+
+
+def test_manifest_preflight_rejects_corruption_and_legacy_receipt():
+    session = published_slot_session()
+    manifest_path = SLOT_RECEIPT[0].replace(".receipt", ".manifest.json")
+    session.blobs[session.paths[manifest_path]] = b"corrupt"
+    with pytest.raises(PublishConflict, match="corrupted"):
+        publisher(session).completed_slot(SLOT_RECEIPT)
+    missing = FakeSession(existing=True, paths={
+        SLOT_RECEIPT[0]: git_blob_sha(SLOT_RECEIPT[1]),
+        **{p: git_blob_sha(data) for p, data in PARTS.items()},
+    })
+    with pytest.raises(PublishConflict, match="without artifact manifest"):
+        publisher(missing).completed_slot(SLOT_RECEIPT)
+
+
+def test_manifest_replay_checks_full_original_batch_even_if_request_is_smaller():
+    futures = "deribit/futures_curve/PAXG/2026/11/05/0400.parquet"
+    raw = {**PARTS, futures: b"PAR1futurePAR1", COVERAGE_PATH: COVERAGE_PAYLOAD}
+    session = published_slot_session(raw=raw, missing=(COVERAGE_PATH,))
+    with pytest.raises(PublishConflict, match="artifact missing/changed"):
+        publisher(session).publish(PARTS, slot_receipt=SLOT_RECEIPT)
+    assert all(method == "GET" for method, _, _ in session.calls)
+
+
+def test_manifest_zero_optional_artifacts_is_valid_noop():
+    session = published_slot_session()
+    assert publisher(session).completed_slot(SLOT_RECEIPT) is True
+    assert not publisher(session).publish(PARTS, slot_receipt=SLOT_RECEIPT).created
     assert all(method == "GET" for method, _, _ in session.calls)
