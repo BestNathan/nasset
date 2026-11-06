@@ -26,3 +26,25 @@ def test_deribit_workflow_pins_code_and_restricts_publish_to_main():
     assert "github.ref == 'refs/heads/main'" in workflow
     assert "needs.read-only-acceptance.outputs.enabled == 'true'" in workflow
     assert 'contents: write' in workflow
+
+
+def test_external_aws_dispatch_slot_must_match_current_utc_hour():
+    import yaml
+    root = yaml.load(
+        Path(".github/workflows/deribit-archive.yml").read_text(), Loader=yaml.BaseLoader,
+    )
+    params = root["on"]["workflow_dispatch"]["inputs"]
+    assert params["slot"]["required"] == "false"
+    assert params["slot"]["default"] == ""
+    assert params["publish"]["default"] == "false"
+    acceptance, writer = root["jobs"]["read-only-acceptance"], root["jobs"]["publish"]
+    pin = next(step for step in acceptance["steps"] if step.get("id") == "slot")
+    assert pin["env"]["REQUESTED_SLOT"] == "${{ inputs.slot }}"
+    assert 'if [ -n "$REQUESTED_SLOT" ] && [ "$REQUESTED_SLOT" != "$current_slot" ]' in pin["run"]
+    assert 'date -u +' in pin["run"]
+    rollover = next(
+        step for step in writer["steps"] if step.get("name", "").startswith("Reject UTC rollover")
+    )
+    assert rollover["env"]["PINNED_SLOT"] == "${{ needs.read-only-acceptance.outputs.slot }}"
+    assert '"$PINNED_SLOT" != "$(date -u +' in rollover["run"]
+    assert writer["permissions"]["contents"] == "write"
