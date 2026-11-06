@@ -58,7 +58,7 @@ def test_workflow_fails_closed_until_activation_commit():
     assert publish["permissions"]["contents"] == "write"
     assert publish["needs"] == "read-only-acceptance"
     gate = next(x for x in ro["steps"] if x.get("id") == "activation")
-    assert gate["run"] == "python -m nasset.deribit_activation"
+    assert gate["run"] == "PYTHONPATH=src python -m nasset.deribit_activation"
     for s in ro["steps"]:
         if s.get("name") in {
             "Pin UTC slot across acceptance and publication",
