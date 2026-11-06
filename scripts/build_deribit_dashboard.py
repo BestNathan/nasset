@@ -20,6 +20,7 @@ import pyarrow.parquet as pq
 import requests
 
 from nasset.deribit_publish import git_blob_sha
+from nasset.deribit_analytics import derive_analytics
 
 RECEIPT_PREFIX = b"deribit-slot-v1\n"
 MANIFEST_PREFIX = b"deribit-manifest-v1\n"
@@ -108,7 +109,7 @@ def parquet_rows(reader: GitHubReader, sha: str, dataset: str, slot: str, column
     raw = reader.blob(sha)
     if not raw.startswith(b"PAR1") or not raw.endswith(b"PAR1"):
         raise ArchiveIntegrityError("invalid Parquet payload")
-    table = pq.read_table(BytesIO(raw), columns=["snapshot_slot_at", "dataset", *columns])
+    table = pq.read_table(BytesIO(raw), columns=["snapshot_slot_at", "captured_at", "dataset", *columns])
     if table.num_rows == 0:
         raise ArchiveIntegrityError("empty archive Parquet part")
     if table.num_rows > 20000:
@@ -116,7 +117,9 @@ def parquet_rows(reader: GitHubReader, sha: str, dataset: str, slot: str, column
     rows = table.to_pylist()
     for row in rows:
         observed = row.pop("snapshot_slot_at")
+        capture = row.pop("captured_at")
         observed_iso = observed.astimezone(timezone.utc).isoformat() if observed else None
+        row["captured_at"] = capture.astimezone(timezone.utc).isoformat() if capture else None
         if row.pop("dataset") != dataset or observed_iso != slot:
             raise ArchiveIntegrityError("Parquet dataset/slot identity mismatch")
         for key, value in row.items():
@@ -202,6 +205,7 @@ def project_archive(reader: GitHubReader, *, max_slots: int = MAX_SLOTS, now: da
         "latest": {"option_chain": [], "futures_curve": [], "index_price": [], "volatility_index": []},
     }
     if not slots:
+        result["analytics"] = derive_analytics(result["latest"], [], None)
         return result
     latest_slot = slots[-1]["slot"]
     for slot in slots:
@@ -212,7 +216,7 @@ def project_archive(reader: GitHubReader, *, max_slots: int = MAX_SLOTS, now: da
             "receipt_path": slot["receipt_path"], "manifest_path": slot["manifest_path"],
         }
         result["slots"].append(summary)
-        point = {"slot": iso, "indexes": [], "dvol": []}
+        point = {"slot": iso, "indexes": [], "dvol": [], "futures": []}
         for path, sha in sorted(entries.items()):
             if path.startswith("deribit/index_price/") and path.endswith(".parquet"):
                 rows = parquet_rows(reader, sha, "index_price", iso, INDEX_FIELDS)
@@ -223,9 +227,11 @@ def project_archive(reader: GitHubReader, *, max_slots: int = MAX_SLOTS, now: da
             if iso == latest_slot and path.startswith("deribit/option_chain/") and path.endswith(".parquet"):
                 rows = parquet_rows(reader, sha, "option_chain", iso, OPTION_FIELDS)
                 result["latest"]["option_chain"].extend(rows)
-            if iso == latest_slot and path.startswith("deribit/futures_curve/") and path.endswith(".parquet"):
+            if path.startswith("deribit/futures_curve/") and path.endswith(".parquet"):
                 rows = parquet_rows(reader, sha, "futures_curve", iso, FUTURE_FIELDS)
-                result["latest"]["futures_curve"].extend(rows)
+                point["futures"].extend(rows)
+                if iso == latest_slot:
+                    result["latest"]["futures_curve"].extend(rows)
         if not point["indexes"] or not point["dvol"]:
             raise ArchiveIntegrityError("hourly index or DVOL dataset missing: " + iso)
         result["history"].append(point)
@@ -233,6 +239,11 @@ def project_archive(reader: GitHubReader, *, max_slots: int = MAX_SLOTS, now: da
     result["latest"]["volatility_index"] = result["history"][-1]["dvol"]
     if not result["latest"]["option_chain"] or not result["latest"]["futures_curve"]:
         raise ArchiveIntegrityError("latest option/futures coverage incomplete")
+    result["analytics"] = derive_analytics(result["latest"], result["history"], latest_slot)
+    # Historic curve rows are consumed into the analytics; browsers need only
+    # compact tenor grids, not another copy of every native futures quote.
+    for point in result["history"]:
+        point.pop("futures", None)
     return result
 
 

@@ -4,81 +4,74 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <meta name="description" content="nasset Deribit 市场数据档案：BTC/ETH 期权链、BTC/ETH/PAXG 期货、指数价格和 DVOL，每小时可核验的 Parquet 快照。">
-  <title>Deribit Market Data · nasset</title>
+  <meta name="description" content="nasset derivatives research · Implied volatility surfaces, skew, convexity and futures basis">
+  <title>Derivatives Research · nasset</title>
   <link rel="stylesheet" href="./styles.css">
   <link rel="stylesheet" href="./deribit.css">
 </head>
 <body>
-  <main class="shell deribit-shell">
-    <header class="market-topbar">
-      <a class="market-logo" href="./index.html" aria-label="返回 nasset 首页"><span class="market-logo-mark">n</span> nasset <span class="market-logo-dot">/</span> data</a>
-      <nav aria-label="站点导航">
-        <a href="./index.html">资产现金流</a>
-        <a href="./topics.html">A 股高股息</a>
-        <a class="market-nav-active" href="./deribit.html" aria-current="page">Deribit 数据</a>
-        <a href="https://github.com/BestNathan/nasset/tree/market-data/deribit" target="_blank" rel="noopener noreferrer">原始归档 ↗</a>
-      </nav>
+  <main class="shell quant-shell">
+    <header class="quant-topbar">
+      <a class="quant-brand" href="./index.html"><span class="quant-mark">n</span><strong>nasset</strong><span>/</span> derivatives</a>
+      <nav aria-label="全站导航"><a href="./index.html">资产现金流</a><a href="./topics.html">高股息研究</a><a class="active" href="./deribit.html" aria-current="page">衍生品研究</a></nav>
+      <span class="quant-research-flag">RESEARCH TERMINAL <span aria-hidden="true">●</span></span>
     </header>
 
-    <section class="market-hero">
-      <div class="market-hero-main">
-        <div class="eyebrow">MARKET INTELLIGENCE / DERIBIT ARCHIVE</div>
-        <h1>可核验的市场<br><span>每一小时。</span></h1>
-        <p>以真实 Git Parquet 归档为数据源，跟踪 BTC / ETH 期权、期货、现货指数与波动率。每个时段都能追溯到不可变的 Manifest 和 Receipt。</p>
-        <div class="market-hero-links">
-          <a class="market-primary-link" href="#market-panels">探索归档数据 <span aria-hidden="true">↗</span></a>
-          <a class="market-quiet-link" href="https://github.com/BestNathan/nasset/actions/workflows/deribit-archive.yml" target="_blank" rel="noopener noreferrer">GitHub Actions 运行记录 ↗</a>
-        </div>
+    <section class="quant-heading">
+      <div class="quant-intro">
+        <div class="eyebrow">DERIVATIVES INTELLIGENCE / QUANTITATIVE RESEARCH</div>
+        <h1>Volatility <span>&amp; Convexity.</span></h1>
+        <p>隐含波动率结构、跨期限偏斜、二阶希腊字母与期权未平仓风险分布。</p>
       </div>
-      <aside class="market-status-panel" aria-live="polite">
-        <span class="market-panel-title">ARCHIVE INTEGRITY / UTC</span>
-        <div id="market-health" class="market-health"><span class="market-health-dot"></span> 检查归档中</div>
-        <div id="market-last-slot" class="market-slot-clock">—</div>
-        <div id="market-last-local" class="market-local-clock">正在读取归档</div>
-        <div class="market-status-divider"></div>
-        <div class="market-status-row"><span>数据源</span><strong>Git · market-data</strong></div>
-        <div class="market-status-row"><span>调度</span><strong>每小时 UTC :12</strong></div>
-        <div class="market-status-row"><span>格式</span><strong>Parquet / ZSTD</strong></div>
-        <div class="market-status-row"><span>最新回执</span><a id="market-receipt-link" href="https://github.com/BestNathan/nasset/tree/market-data/deribit/slots" target="_blank" rel="noopener noreferrer">查看归档 ↗</a></div>
-      </aside>
-    </section>
-
-    <section id="market-summary" class="market-summary" aria-label="归档概览"></section>
-
-    <section id="market-panels" class="market-explorer">
-      <div class="market-explorer-top">
-        <div>
-          <div class="eyebrow">EXPLORE THE ARCHIVE</div>
-          <h2>市场数据工作台</h2>
-          <p>可按标的和数据集查看当前快照及历史记录。仅展示已成功提交的 UTC 时段。</p>
-        </div>
-        <div id="market-assets" class="market-assets" role="group" aria-label="选择标的">
-          <button data-asset="BTC" class="active" aria-pressed="true">BTC</button>
-          <button data-asset="ETH" aria-pressed="false">ETH</button>
-          <button data-asset="PAXG" aria-pressed="false">PAXG</button>
-        </div>
-      </div>
-      <nav id="market-tabs" class="market-tabs" aria-label="数据集视图">
-        <button data-tab="overview" class="active" aria-selected="true">总览</button>
-        <button data-tab="options" aria-selected="false">期权链 / IV</button>
-        <button data-tab="futures" aria-selected="false">期货曲线</button>
-        <button data-tab="archive" aria-selected="false">归档记录</button>
-      </nav>
-      <div id="market-body" class="market-body" aria-live="polite">
-        <div class="market-loading"><span class="market-spinner"></span> 正在加载已验证的市场数据…</div>
+      <div class="quant-asof" id="quant-asof" aria-live="polite">
+        <span>SNAPSHOT / UTC</span><strong>读取中…</strong>
       </div>
     </section>
 
-    <section class="market-method">
-      <div class="eyebrow">DATA &amp; METHODOLOGY</div>
-      <div class="market-method-grid">
-        <div><strong>原始数据优先</strong><p>指数按完整 index_name 展示，保留 USD / USDC 区别；期权价格、IV、持仓量遵循交易所原生单位，不强行换算。</p></div>
-        <div><strong>明确观测边界</strong><p>每个小时是当时的快照，不是连续行情；历史空档不补造报价。DVOL 显示最后完成的原生小时 K 线。</p></div>
-        <div><strong>不制造 Greeks</strong><p>当前 Parquet 无原生 Delta。期权矩阵使用相对标的价格的虚值距离（OTM %），不将它标记成 Delta。</p></div>
+    <div class="quant-commandbar">
+      <div class="quant-asset-switch" role="group" aria-label="标的">
+        <button type="button" data-asset="BTC" class="active" aria-pressed="true">BTC</button>
+        <button type="button" data-asset="ETH" aria-pressed="false">ETH</button>
+        <button type="button" data-asset="PAXG" aria-pressed="false">PAXG</button>
       </div>
+      <span class="quant-control-separator"></span>
+      <div id="quant-family-switch" class="quant-family-switch" role="group" aria-label="期权市场">
+        <button type="button" class="active" data-family="inverse" aria-pressed="true">Coin-margined</button>
+        <button type="button" data-family="linear" aria-pressed="false">USDC-linear</button>
+      </div>
+      <div class="quant-command-hint">MARK IV <span>·</span> BLACK-76 DERIVED GREEKS</div>
+    </div>
+
+    <section id="quant-kpis" class="quant-kpis" aria-label="市场核心指标">
+      <div class="quant-loading">正在计算隐含波动率与风险敏感度…</div>
     </section>
-    <footer><span>研究用途，不构成交易建议。行情为历史快照，非实时可成交报价。</span><a href="https://github.com/BestNathan/nasset/issues/6">数据方案与验收</a></footer>
+
+    <nav class="quant-tabs" aria-label="研究维度">
+      <button type="button" data-tab="surface" class="active" aria-selected="true"><span>01</span> 波动率曲面</button>
+      <button type="button" data-tab="risk" aria-selected="false"><span>02</span> Convexity &amp; OI</button>
+      <button type="button" data-tab="futures" aria-selected="false"><span>03</span> 期货期限结构</button>
+      <button type="button" data-tab="options" aria-selected="false"><span>04</span> 期权合约</button>
+    </nav>
+    <div id="quant-content" class="quant-content" aria-live="polite">
+      <div class="quant-loading">正在加载研究结果…</div>
+    </div>
+
+    <section class="quant-footer-note">
+      <details>
+        <summary>定价假设、单位与指标定义 <span>MODEL NOTES +</span></summary>
+        <div class="quant-method-grid">
+          <p><strong>波动率面与风险逆转</strong>：Black-76 前向 Delta 定位 10Δ / 25Δ 看涨与看跌 IV，严格限制于有成交标记 IV 的相邻 Delta 节点之间插值。ATM 取近远期执行价附近的已挂牌 IV 均值。RR25 = 25Δ Call − 25Δ Put，BF25 = 两翼均值 − ATM。</p>
+          <p><strong>二阶 Greeks</strong>：以期权自身的 underlying_price 作为远期 F，使用 Mark IV、实际到期日与 Black-76（折现因子为 1）；包括 Gamma / Vanna / Volga / Charm，并非 Deribit 原生 Greeks。缺失市场节点不做外推。</p>
+          <p><strong>持仓风险</strong>：OI 以标的单位估计，只计算“所有未平仓合约假设持有多头”的绝对敏感度。Gamma 为底层移动 1% 的美元 Delta 变化近似，Vanna 为 IV 移动 1 个百分点的美元 Delta 敏感度，Charm 为经过一天的美元 Delta 漂移；这些不是实际做市商净头寸或预计交易方向。</p>
+          <p><strong>期限与参考价格</strong>：按 coin-settled 与 USDC-linear 产品分组，避免混合标记价与持仓量。期货年化基差仅在存在匹配 USD / USDC 指数及剩余至少 1 天时计算。历史波动率仅利用相邻真实小时观测，缺失时段不补零。</p>
+        </div>
+      </details>
+    </section>
+
+    <footer class="quant-footer">
+      <span>nasset / DERIVATIVES RESEARCH · 市场观测与情景敏感度，不构成投资建议。</span>
+      <a href="https://github.com/BestNathan/nasset/blob/main/docs/deribit-pages.md" target="_blank" rel="noopener noreferrer">METHODS</a>
+    </footer>
   </main>
   <script src="./deribit.js" defer></script>
 </body>

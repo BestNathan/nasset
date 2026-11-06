@@ -150,5 +150,24 @@ def test_workflows_are_main_only_and_refresh_pages_after_verified_publication():
     assert "deribit.js" in html and "deribit.css" in html
     assert "deribit.html" in (ROOT/"site/index.html").read_text()
     assert "data/deribit-dashboard.json" in js
-    assert "data-matrix-dte" in js and "data-matrix-otm" in js
+    assert "data-surface-expiry" in js and "surfaceHeatmap" in js
+    assert "riskView" in js and "futuresMatrix" in js
+    assert "market()?.greeks_by_instrument" in js
+    assert "NOT DEALER NET" in js
     assert "NASSET_AWS" not in js
+
+def test_dashboard_projection_exposes_modelled_analytics_without_native_greek_claims():
+    archive=FakeArchive()
+    when=datetime(2026,11,6,12,tzinfo=timezone.utc)
+    write_hour(archive,when)
+    data=M["project_archive"](archive,now=when+timedelta(minutes=20))
+    assert data["analytics"]["version"]==1
+    assert data["analytics"]["model"].startswith("Black-76")
+    btc=data["analytics"]["assets"]["BTC"]
+    assert "inverse" in btc["markets"]
+    contracts=btc["markets"]["inverse"]
+    assert contracts["contracts"]==1
+    assert contracts["greeks_by_instrument"]["BTC-27NOV26-110000-C"]["gamma"] > 0
+    assert data["history"][0].get("futures") is None
+    assert data["latest"]["option_chain"][0]["captured_at"].startswith("2026-11-06T12:12")
+    assert "dealer" in data["analytics"]["position_scope"].lower()
