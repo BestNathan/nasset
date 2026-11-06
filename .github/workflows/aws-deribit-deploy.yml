@@ -1,0 +1,87 @@
+name: AWS Deribit Scheduler deployment
+
+# No secrets are exposed to PRs; only main can provision cloud resources.
+on:
+  push:
+    branches: [main]
+    paths:
+      - config/aws-deribit-scheduler.json
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "Reconcile config, inspect, temporarily disable, or destroy"
+        type: choice
+        required: true
+        default: status
+        options:
+          - status
+          - reconcile
+          - disable
+          - destroy
+      confirm_destroy:
+        description: "Confirm destruction (must disable first; SSM secret and logs stay)"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nasset-aws-deribit-scheduler-deploy
+  cancel-in-progress: false
+
+jobs:
+  manage:
+    # A feature branch or pull request must NEVER receive AWS deployment secrets.
+    if: ${{ github.repository == 'BestNathan/nasset' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AWS_DEFAULT_REGION: ap-southeast-1
+      AWS_ACCESS_KEY_ID: ${{ secrets.NASSET_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.NASSET_AWS_SECRET_ACCESS_KEY }}
+      AWS_SESSION_TOKEN: ${{ secrets.NASSET_AWS_SESSION_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install AWS SDK (deployment only, not collector)
+        run: pip install "boto3>=1.35,<2"
+
+      - name: Reconcile Git-managed desired state
+        if: ${{ github.event_name == 'push' || inputs.operation == 'reconcile' }}
+        env:
+          NASSET_GITHUB_DISPATCH_TOKEN: ${{ secrets.NASSET_GITHUB_DISPATCH_TOKEN }}
+        run: python scripts/aws_deribit_scheduler.py reconcile
+
+      - name: Inspect deployed schedule
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'status' }}
+        run: python scripts/aws_deribit_scheduler.py status
+
+      - name: Emergency disable schedule
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'disable' }}
+        run: python scripts/aws_deribit_scheduler.py disable
+
+      - name: Confirm explicit teardown
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'destroy' }}
+        env:
+          CONFIRM_DESTROY: ${{ inputs.confirm_destroy }}
+        run: |
+          if [ "$CONFIRM_DESTROY" != "true" ]; then
+            echo "Refusing AWS teardown without confirm_destroy=true" >&2
+            exit 1
+          fi
+
+      - name: Destroy managed resources (requires already disabled)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'destroy' }}
+        run: python scripts/aws_deribit_scheduler.py destroy --confirm-destroy
