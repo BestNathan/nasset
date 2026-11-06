@@ -33,6 +33,38 @@ The deployer requires permissions to:
 - Get/put the `/nasset/deribit/github-token` SSM Standard SecureString
   parameter, and manage the Lambda's own CloudWatch log group/retention.
 
+### AWS IAM permission policy for the deployment user
+
+If the AWS deployment job fails with `AccessDeniedException`, the static
+AK/SK successfully authenticated to AWS but the **IAM user lacks the right
+API permissions**. For example, an error on `ssm:GetParameter` means GitHub
+cannot inspect/create the encrypted dispatch token parameter. **Do not**
+replace the AK/SK with root credentials or grant `AdministratorAccess`.
+
+Use the repository's
+[`deployer-iam-policy.example.json`](deployer-iam-policy.example.json)
+as a narrowly scoped inline IAM policy:
+
+1. Open [AWS IAM Users](https://console.aws.amazon.com/iam/home#/users)
+   and select **the IAM user that owns the AK/SK in GitHub Secrets**.
+2. Open **Permissions → Add permissions → Create inline policy → JSON**.
+3. Copy the example JSON into the editor and replace every
+   `REPLACE_WITH_12_DIGIT_ACCOUNT_ID` with your AWS **12-digit account ID**
+   (visible under the account menu in the AWS console).
+4. Review the resources and actions and save, e.g. as
+   `nasset-deribit-deployer`. No AWS root key is needed.
+5. From GitHub Actions, rerun the failed
+   [AWS Deribit Scheduler deployment](https://github.com/BestNathan/nasset/actions/workflows/aws-deribit-deploy.yml)
+   workflow **only after** saving the policy. The GitOps desired state
+   remains `disabled` until the AWS creation is verified.
+
+The example scopes writes to the exact nasset runtime roles, dispatcher
+Lambda, hourly schedule, SecureString parameter, and CloudWatch log group
+in `ap-southeast-1`. `iam:PassRole` is restricted to the Lambda and
+Scheduler service principals. No IAM user or credential-creation powers
+are included. This is a repository-maintained policy example rather than
+an automatic IAM privilege escalation.
+
 The AWS region is fixed to **ap-southeast-1 (Singapore)**. The official
 `aws-actions/configure-aws-credentials` GitHub Action uses the two protected
 secrets only in the main-branch deployment job and obtains credentials for
