@@ -22,3 +22,5 @@ jobs:
           cache: pip
       - run: pip install -e ".[dev,archive]"
       - run: pytest -q
+      - name: Check static Deribit viewer syntax
+        run: node --check site/deribit.js

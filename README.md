@@ -55,6 +55,23 @@ This is not a universal probability-of-loss rating. Long-duration sovereign bond
 
 The asset registry is in `src/nasset/engine.py`.
 
+## Deribit archive data viewer on Pages
+
+A separate [Deribit Market Data](site/deribit.html) dashboard lives beside
+the existing cashflow dashboard and A-share dividend research view.
+It shows BTC / ETH option chains, BTC / ETH / PAXG futures and reference
+indices, BTC / ETH DVOL, historical snapshots and Git-backed hourly receipts.
+The options matrix uses **DTE x OTM strike distance, not Delta**: this
+archive does not store native option Greeks or claim PAXG option coverage.
+
+`scripts/build_deribit_dashboard.py` builds a JSON projection from
+the exact pinned `market-data` commit. Every UTC slot's manifest/receipt and
+Git blob SHA are verified before Parquet rows are read; no browser credentials,
+live source scraping, fake missing slots or mutations of the archive.
+Normal Pages deployment and successful hourly archive runs refresh the view
+via `.github/workflows/daily.yml` and `.github/workflows/deribit-pages.yml`.
+Implementation, refresh rules and semantics: [Deribit Pages design](docs/deribit-pages.md).
+
 ## A-share dividend research topics
 
 The Pages site now has a separate [A-share high-dividend topics](site/topics.html) view; it does **not** replace the original four-layer cashflow ladder.
