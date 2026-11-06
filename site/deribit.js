@@ -115,6 +115,8 @@ function renderKpis(){
 }
 
 function chooseProduct(){
+  // PAXG currently has USDC-settled futures but no option market.
+  if(state.asset==="PAXG"){state.family="linear";return;}
   const a=assetModel(),available=a?.markets || {};
   if(!available[state.family]){
     state.family=available.inverse?"inverse":available.linear?"linear":"inverse";
