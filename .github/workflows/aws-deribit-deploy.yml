@@ -1,7 +1,7 @@
 name: AWS Deribit Scheduler deployment
 
-# GitHub OIDC -> short-lived AWS STS credentials; no static AWS AK/SK.
-# No trust for PRs: only main can provision cloud resources.
+# GitHub Actions repository secrets provide the dedicated AWS IAM deployment keys.
+# Never make deployment credentials available to pull_request/fork workflows.
 on:
   push:
     branches: [main]
@@ -40,7 +40,6 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
-      id-token: write
     env:
       AWS_DEFAULT_REGION: ap-southeast-1
 
@@ -72,25 +71,27 @@ jobs:
           fi
           echo "need_aws=true" >> "$GITHUB_OUTPUT"
 
-      - name: Validate OIDC deployment role configuration
+      - name: Validate GitHub AWS deployment secrets
         if: ${{ steps.gate.outputs.need_aws == 'true' }}
         env:
-          ROLE_ARN: ${{ vars.NASSET_AWS_DEPLOY_ROLE_ARN }}
+          KEY: ${{ secrets.NASSET_AWS_ACCESS_KEY_ID }}
+          SECRET: ${{ secrets.NASSET_AWS_SECRET_ACCESS_KEY }}
         run: |
-          if [[ ! "$ROLE_ARN" =~ ^arn:aws:iam::[0-9]{12}:role/nasset-deribit-github-deployer$ ]]; then
-            echo "Set repository Actions Variable NASSET_AWS_DEPLOY_ROLE_ARN to the CloudFormation role ARN" >&2
+          if [ -z "$KEY" ] || [ -z "$SECRET" ]; then
+            echo "Configure NASSET_AWS_ACCESS_KEY_ID and NASSET_AWS_SECRET_ACCESS_KEY under GitHub Actions repository Secrets" >&2
             exit 1
           fi
 
-      - name: Obtain short-lived AWS credentials through GitHub OIDC
+      - name: Configure AWS IAM deployment credentials
         if: ${{ steps.gate.outputs.need_aws == 'true' }}
         uses: aws-actions/configure-aws-credentials@v6.3.0
         with:
           aws-region: ap-southeast-1
-          role-to-assume: ${{ vars.NASSET_AWS_DEPLOY_ROLE_ARN }}
-          role-session-name: nasset-${{ github.run_id }}
+          aws-access-key-id: ${{ secrets.NASSET_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.NASSET_AWS_SECRET_ACCESS_KEY }}
           mask-aws-account-id: true
           unset-current-credentials: true
+          role-session-name: nasset-${{ github.run_id }}
 
       - name: Install AWS SDK (deployment only, not collector)
         if: ${{ steps.gate.outputs.need_aws == 'true' }}
