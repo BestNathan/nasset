@@ -26,7 +26,7 @@ jobs:
         with:
           node-version: "22"
       - name: Dependencies
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev,archive]"
       - name: Python tests
         run: pytest -q
       - name: Static JS syntax
@@ -37,7 +37,9 @@ jobs:
         run: python -m py_compile scripts/build_topics_dividends.py
 
   full-data-integration:
-    runs-on: ubuntu-latest
+    # Playwright 1.56.1 Chromium bootstrap fails on GitHub's ubuntu-26.04
+    # image; pin only this existing browser E2E job to a supported image.
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4

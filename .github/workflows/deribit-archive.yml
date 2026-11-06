@@ -1,0 +1,86 @@
+name: Deribit hourly market-data archive
+
+on:
+  schedule:
+    # UTC 37 minutes after each hour, avoids GitHub's busiest cron boundary.
+    - cron: "37 * * * *"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Attempt Git publication (requires DERIBIT_ARCHIVE_ENABLED=true)"
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deribit-market-data-archive
+  cancel-in-progress: false
+
+jobs:
+  read-only-acceptance:
+    # A missing variable resolves to empty and safely disables scheduled work.
+    if: ${{ github.event_name == 'workflow_dispatch' || vars.DERIBIT_ARCHIVE_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    outputs:
+      slot: ${{ steps.slot.outputs.slot }}
+    steps:
+      - name: Pin UTC slot across acceptance and publication
+        id: slot
+        run: echo "slot=$(date -u +'%Y-%m-%dT%H:00:00Z')" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install archive dependencies
+        run: pip install -e ".[archive]"
+
+      - name: Verify Deribit live source contract
+        run: python -m nasset.deribit_probe --config config/market-data.yml
+
+      - name: Build and validate due UTC-hour batch without Git writes
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python -m nasset.deribit_collect --config config/market-data.yml --at "${{ steps.slot.outputs.slot }}"
+
+  publish:
+    needs: read-only-acceptance
+    # Production branch updates are impossible until an operator explicitly
+    # creates the repository variable DERIBIT_ARCHIVE_ENABLED=true.
+    # The manual path additionally requires publish=true.
+    if: ${{ github.ref == 'refs/heads/main' && vars.DERIBIT_ARCHIVE_ENABLED == 'true' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.publish == true)) }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install archive dependencies
+        run: pip install -e ".[archive]"
+
+      - name: Publish complete due UTC-hour batch to orphan branch
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python -m nasset.deribit_collect --config config/market-data.yml --at "${{ needs.read-only-acceptance.outputs.slot }}" --publish

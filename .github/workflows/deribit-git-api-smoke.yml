@@ -1,0 +1,40 @@
+name: Deribit isolated Git Data API smoke
+
+on:
+  push:
+    branches:
+      - design/deribit-market-data-archive
+    paths:
+      - .github/workflows/deribit-git-api-smoke.yml
+      - tests/deribit_git_api_smoke.py
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: deribit-git-api-smoke
+  cancel-in-progress: false
+
+jobs:
+  isolated-publisher-contract:
+    if: ${{ github.repository == 'BestNathan/nasset' && github.ref == 'refs/heads/design/deribit-market-data-archive' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install archive dependencies
+        run: pip install -e ".[archive]"
+      - name: Verify zero-parent publish, replay, ref race, and cleanup
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python tests/deribit_git_api_smoke.py
