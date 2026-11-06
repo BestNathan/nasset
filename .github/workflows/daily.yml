@@ -17,7 +17,7 @@ permissions:
 
 concurrency:
   group: nasset-pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   generate:
@@ -68,6 +68,12 @@ jobs:
             git commit -m "data: daily asset snapshot $(date -u +%F)"
             git push
           fi
+
+      - name: Build verified Deribit archive projection for Pages
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python scripts/build_deribit_dashboard.py
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
