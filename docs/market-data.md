@@ -384,3 +384,41 @@ A repeat run verifies the exact receipt, reads only the small Git manifest blob 
 GitHub repository size at final pre-merge review: **1,577 KiB** (all refs). Continue monitoring actual repository/object-store growth; review around 3 GiB. This is not a measured long-term hourly/historical backfill size baseline.
 
 **Activation is now a versioned, repository-controlled gate**: `config/market-data-activation.json` starts with `enabled: false` (JSON boolean). The main-only workflow validates exact `version/branch/enabled` types and defaults fail-closed; the scheduled path performs only a cheap checkout and gate check when disabled. Manual dry-run still works without publishing, but manual write requires both checked-in `enabled: true` and `publish=true`. A commit toggling this one file to `enabled: true` on main triggers an initial controlled publish after a read-only live probe and complete batch preparation; subsequent UTC minute-37 scheduled runs use the same gate. Reverting the config to false disables later writes. This approach replaces the inaccessible repository Actions Variable with an auditable Git commit, without weakening main-only, complete-batch, or non-force Git Data API protection. Never force push or rewrite archived history; rolling retention remains deferred.
+
+
+### Production activation verified — 2026-11-06, 03:00 UTC
+
+The production deployment is **active** through the explicit, versioned
+`config/market-data-activation.json` policy (`enabled: true`). The enable
+commit is [a3ed045](https://github.com/BestNathan/nasset/commit/a3ed045994a58eafe2e44a9051d9730edf4c42f1),
+after the disabled-by-default gate was validated and merged in [PR #8](https://github.com/BestNathan/nasset/pull/8).
+
+- First production [workflow run 42156384955, attempt 1](https://github.com/BestNathan/nasset/actions/runs/42156384955/attempts/1)
+  published the **03:00 UTC due slot** to the real `market-data` orphan ref.
+  The [initial commit `56226db`](https://github.com/BestNathan/nasset/commit/56226db9cbffdd4213ae3601dee7b6fb0fa8b165)
+  has **zero parents** and contains **8 Parquet/ZSTD parts**: two BTC/ETH options,
+  three BTC/ETH/PAXG futures, one shared index-price part with five real index
+  names, and two BTC/ETH DVOL parts. The published Parquet payload totals
+  **141,987 bytes** (3,000 option rows, 47 futures, 5 indices, 2 DVOL).
+- The same atomic commit contains one versioned `.receipt` and one `.manifest.json`.
+  A remote Git Tree and Git Blob audit found **exactly 10 blob files**, with
+  every one of the manifest's nine listed artifact paths and blob SHAs matching.
+  The manifest correctly excludes itself, includes the receipt, and contains
+  all mandatory snapshot paths. No PAXG option file or fabricated zero-price
+  record was published.
+- Re-running the original publish job exposed a transient GitHub Tree API
+  HTTP 504 while **reading archive integrity metadata**. It aborted without
+  mutating the ref. [PR #9](https://github.com/BestNathan/nasset/pull/9)
+  adds bounded, retryable **GET-only** recovery for 429/5xx and network timeouts.
+  Non-idempotent Git writes remain single-attempt and conflicts remain fail-closed.
+- Final real [same-slot replay run 42157149476](https://github.com/BestNathan/nasset/actions/runs/42157149476)
+  succeeded with `status: already_published`, `source was not queried`,
+  and no additional Git commit: production branch HEAD stayed at `56226db`.
+
+The UTC minute-37 schedule remains active, using the same config/receipt and
+append-only Git Data API semantics for future slots. An operator can stop future
+publications by committing `"enabled": false` in the activation JSON. Routine
+monitoring must verify actual run status, missing UTC slots, repo size growth
+and the first due daily historical-volatility/delivery-price increments; these
+have not been fabricated or considered already archived. There is no retention
+squash, force update, or production history rewrite.

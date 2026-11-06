@@ -1,4 +1,4 @@
-# Market-data archive configuration (target design; collector not yet deployed).
+# Production Deribit market-data configuration; enable/disable via config/market-data-activation.json.
 # Reference: docs/market-data.md and GitHub issue #6
 version: 1
 
