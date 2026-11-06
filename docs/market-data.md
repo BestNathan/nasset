@@ -364,4 +364,23 @@ headers, tree/commit objects, index storage, changing contract counts and
 any hypothetical PAXG option inventory. Never extrapolate them into a
 reliable storage-retention decision without repeated slot samples.
 
-\n### Atomic published-artifact manifest (v1)\n\nEvery committed UTC due slot now includes both the deterministic `deribit/slots/YYYY/MM/DD/HH00.receipt` (due-config identity) and a versioned `HH00.manifest.json` in the same Git Data API commit. The manifest inventories **every actual immutable archive path and Git blob SHA**, including futures, optional zero-listing coverage JSON, daily incremental HV/delivery Parquet and native event-key markers, and the receipt itself. No entry for legitimately absent optional data is invented. Replay checks the receipt and downloads only the small manifest Git blob, then validates all listed blob SHAs using scoped Git Tree metadata; it never downloads archive Parquet history. Missing, mismatched or legacy manifests fail closed, rather than returning `already_published`. The manifest is immutable and excluded from its own inventory to avoid a recursive hash.\n\nThe live market-data ref and scheduled publish remain gated pending end-to-end Git Data API ref-race evidence and final CI.\n
+
+
+### Atomic published-artifact manifest (v1)
+
+Each UTC due slot atomically commits a deterministic `deribit/slots/YYYY/MM/DD/HH00.receipt` (due-config identity) plus a versioned `HH00.manifest.json`. The manifest inventories **every actual immutable artifact path and Git blob SHA**, including futures, zero-listing coverage JSON, daily incremental HV/delivery Parquet and native event-key markers, and the receipt itself. It omits legitimately absent optional data. The manifest is excluded from its own inventory to avoid recursive hashing.
+
+A repeat run verifies the exact receipt, reads only the small Git manifest blob and resolves all listed blob SHAs through scoped Git Tree metadata. It does **not** download historical Parquet. Missing, changed or legacy manifests fail closed instead of returning `already_published`.
+
+### Production acceptance and controlled activation — 2026-11-06
+
+**All validation below ran against the design PR, not production archival.**
+
+- Python CI: [run 42153394373](https://github.com/BestNathan/nasset/actions/runs/42153394373), **216 passed, 2 unrelated NumPy warnings**.
+- Source contract and full live dry-run: [run 42153394367](https://github.com/BestNathan/nasset/actions/runs/42153394367), **passed**. Verified BTC/ETH option coverage, PAXG index/future capability and true index identifiers; no publication.
+- Topic quality and browser integration: [run 42153394415](https://github.com/BestNathan/nasset/actions/runs/42153394415), **passed**.
+- Real Git Data API (isolated): [run 42153390142](https://github.com/BestNathan/nasset/actions/runs/42153390142), **passed**. Published 10 artifacts through an orphan initial commit with **zero parents**, verified a same-slot no-op, rejected a competing non-forced update, and deleted temporary `deribit-smoke/42153390142-1`. The production `market-data` ref was untouched.
+
+GitHub repository size at final pre-merge review: **1,577 KiB** (all refs). Continue monitoring actual repository/object-store growth; review around 3 GiB. This is not a measured long-term hourly/historical backfill size baseline.
+
+**Activation remains a separate explicit operational gate**: the archive workflow will be on `main` with a UTC minute-37 schedule, but acceptance and publishing jobs require repository variable `DERIBIT_ARCHIVE_ENABLED=true` (missing/false disables scheduled collection). Manual dispatch additionally needs `publish=true`; the write job requires `refs/heads/main`. The first authorized publish initializes `market-data` with a zero-parent Git commit. First confirm the variable is absent/false; for controlled activation, set it to true, perform a main-branch manual dispatch, verify the actual commit/receipt/manifest and repeat-idempotence, then allow routine scheduled execution. Never force push or rewrite archived history; rolling retention remains deferred.
