@@ -298,6 +298,10 @@ def _asset_market(rows, asset, reference):
             "contracts": len(opts), "rejected": rejected,
             "expiries": slices, "tenors": tenors,
             "risk": risk,
+            "greeks_by_instrument": {
+                r["instrument"]: {name: _safe(val) for name, val in r["greeks"].items()}
+                for r in opts if r["instrument"]
+            },
         }
     return products
 
@@ -376,6 +380,25 @@ def _futures_curve(rows, asset, index_prices, as_of):
                                           r["days"] if r["days"] is not None else 1e6))
 
 
+def _futures_history_surface(history, asset):
+    """No expiry extrapolation: annualized basis at 7/30/60/90/180D nodes."""
+    tenors = (7, 30, 60, 90, 180)
+    families = {"inverse": [], "linear": []}
+    for point in history:
+        slot = datetime.fromisoformat(point["slot"].replace("Z", "+00:00"))
+        quotes = _futures_curve(point.get("futures", ()), asset,
+                                point.get("indexes", ()), slot)
+        for family in families:
+            available = [q for q in quotes if q["family"] == family and
+                         q["days"] is not None and q["annualized_basis_pct"] is not None]
+            families[family].append({
+                "slot": point["slot"],
+                "nodes": {str(day): _linear_term(available, day, "annualized_basis_pct",
+                                                max_days=120) for day in tenors},
+            })
+    return families
+
+
 def derive_analytics(latest, history, latest_slot):
     """Return JSON-safe analytics for the latest verified market-data snapshot."""
     if not latest_slot:
@@ -401,6 +424,7 @@ def derive_analytics(latest, history, latest_slot):
             "dvol_pct": dvol,
             "markets": products,
             "futures": forward_curve,
+            "futures_surface": _futures_history_surface(history, asset),
         }
     return {"version": 1, "as_of": latest_slot, "assets": results,
             "model": "Black-76 forward Greeks, no discount, fixed per-contract IV",
