@@ -25,11 +25,11 @@ _EVENT_PREFIX = b"deribit-event-v1\n"
 _COVERAGE_PATH = re.compile(
     r"^deribit/coverage/[0-9]{4}/[0-9]{2}/[0-9]{2}/[0-9]{4}\.json$"
 )
-_SLOT_PATH = re.compile(r"^deribit/slots/[0-9]{4}/[0-9]{2}/[0-9]{2}/[0-9]{4}\\.receipt$")
+_SLOT_PATH = re.compile(r"^deribit/slots/[0-9]{4}/[0-9]{2}/[0-9]{2}/[0-9]{4}\.receipt$")
 _MANIFEST_PATH = re.compile(
-    r"^deribit/slots/[0-9]{4}/[0-9]{2}/[0-9]{2}/[0-9]{4}\\.manifest\\.json$"
+    r"^deribit/slots/[0-9]{4}/[0-9]{2}/[0-9]{2}/[0-9]{4}\.manifest\.json$"
 )
-_MANIFEST_PREFIX = b"deribit-manifest-v1\\n"
+_MANIFEST_PREFIX = b"deribit-manifest-v1\n"
 _MANIFEST_MAX_BYTES = 16 * 1024 * 1024
 # Avoid one POST /git/blobs for each of thousands of historical event keys.
 # Git Trees support inline UTF-8 content for blobs. Build small tree batches,

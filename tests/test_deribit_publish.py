@@ -490,7 +490,7 @@ def test_manifest_records_exact_futures_coverage_and_history_inventory():
              COVERAGE_PATH: COVERAGE_PAYLOAD, EVENT_PATH: EVENT_BLOB}
     items = {**extra, SLOT_RECEIPT[0]: SLOT_RECEIPT[1]}
     path, manifest = slot_manifest(items, SLOT_RECEIPT[0])
-    record = json.loads(manifest.removeprefix(b"deribit-manifest-v1\\n"))
+    record = json.loads(manifest.removeprefix(b"deribit-manifest-v1\n"))
     assert path == "deribit/slots/2026/11/05/0400.manifest.json"
     assert [row["path"] for row in record["artifacts"]] == sorted(items)
     assert {row["path"]: row["sha"] for row in record["artifacts"]} == {
