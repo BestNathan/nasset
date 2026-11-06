@@ -111,6 +111,7 @@ def test_scheduler_region_defaults_to_apac_project_and_reads_actions_env(monkeyp
 
 def test_example_iam_policy_uses_apac_project_region_not_old_singapore():
     import json
+    from pathlib import Path
     policy_path = Path(__file__).resolve().parents[1] / "aws/deployer-iam-policy.example.json"
     policy = json.loads(policy_path.read_text())
     arns = []
