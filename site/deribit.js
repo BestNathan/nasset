@@ -329,7 +329,7 @@ function futuresView(){
       riskNumber("Reference spot","匹配对应币种指数",finite(a?.reference_price)?"$"+money(a.reference_price,2):"—")+
       riskNumber("Tradable maturities","具备年化基差观测的合约",int(current.length))+
       riskNumber("Front contract basis","首个到期合约年化基差",current.length?signed(current[0].annualized_basis_pct,2)+"%":"—")+
-      riskNumber("90D basis","最近有效90日期限插值",vp((a?.futures_surface?.[state.family]||[]).at(-1)?.nodes?.["90"]))+
+      riskNumber("90D basis","最近有效90日期限插值",finite((a?.futures_surface?.[state.family]||[]).at(-1)?.nodes?.["90"])?signed((a.futures_surface[state.family]).at(-1).nodes["90"],2)+"%":"—")+
     '</div></article></div>';
   const table=rows.length?'<div class="quant-table-scroll"><table class="quant-table"><thead><tr>'+
     '<th>Instrument</th><th>Expiry</th><th>Days</th><th>Mark</th><th>Reference</th><th>Basis</th><th>Ann. basis</th>'+
@@ -427,6 +427,7 @@ function bindEvents(){
   document.body.addEventListener("click",ev=>{
     const asset=ev.target.closest("[data-asset]");
     if(asset){state.asset=asset.dataset.asset;state.selectedExpiry=null;state.optionPage=0;
+      state.family=state.asset==="PAXG"?"linear":"inverse";
       if(state.asset==="PAXG")state.tab="futures";
       else if(state.tab==="futures")state.tab="surface";
       render();return;}
