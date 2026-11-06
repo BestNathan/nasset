@@ -9,6 +9,7 @@ import base64
 import hashlib
 import json
 import re
+import time
 from dataclasses import dataclass
 from typing import Mapping
 
@@ -99,13 +100,32 @@ class GitHubArchivePublisher:
 
     def _api(self, method: str, path: str, *, payload: dict | None = None,
              missing_ok: bool = False) -> dict | None:
-        response = self.session.request(method, self.url + path, json=payload, timeout=30)
-        if missing_ok and response.status_code == 404:
-            return None
-        if response.status_code in (409, 412, 422):
-            raise PublishConflict(f"GitHub {method} {path}: HTTP {response.status_code}")
-        response.raise_for_status()
-        return response.json()
+        # GitHub may transiently 502/503/504 during scoped tree lookups.
+        # Retrying a GET is safe; never automatically replay POST/PATCH, whose
+        # write may have succeeded before the response was lost. Any exhausted
+        # GET failure aborts publication without touching the archive ref.
+        max_attempts = 5 if method == "GET" else 1
+        for attempt in range(max_attempts):
+            try:
+                response = self.session.request(
+                    method, self.url + path, json=payload, timeout=30,
+                )
+            except requests.RequestException:
+                if attempt + 1 == max_attempts:
+                    raise
+                time.sleep(min(4.0, 0.5 * 2**attempt))
+                continue
+            if (method == "GET" and response.status_code in (429, 500, 502, 503, 504)
+                    and attempt + 1 < max_attempts):
+                time.sleep(min(4.0, 0.5 * 2**attempt))
+                continue
+            if missing_ok and response.status_code == 404:
+                return None
+            if response.status_code in (409, 412, 422):
+                raise PublishConflict(f"GitHub {method} {path}: HTTP {response.status_code}")
+            response.raise_for_status()
+            return response.json()
+        raise AssertionError("unreachable GitHub retry state")
 
     def repository_size_kib(self) -> int:
         """GitHub's repository object-store size estimate (KiB), all refs."""
