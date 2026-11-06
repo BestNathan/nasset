@@ -43,7 +43,7 @@ def test_external_aws_dispatch_slot_must_match_current_utc_hour():
     assert 'if [ -n "$REQUESTED_SLOT" ] && [ "$REQUESTED_SLOT" != "$current_slot" ]' in pin["run"]
     assert 'date -u +' in pin["run"]
     rollover = next(
-        step for step in writer["steps"] if step.get("name", "").startswith("Reject UTC rollover"),
+        step for step in writer["steps"] if step.get("name", "").startswith("Reject UTC rollover")
     )
     assert rollover["env"]["PINNED_SLOT"] == "${{ needs.read-only-acceptance.outputs.slot }}"
     assert '"$PINNED_SLOT" != "$(date -u +' in rollover["run"]
