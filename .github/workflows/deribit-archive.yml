@@ -1,13 +1,18 @@
 name: Deribit hourly market-data archive
 
 on:
+  push:
+    branches: [main]
+    # An explicit commit activating the archive also launches its first slot.
+    # Archive and Daily data commits never match this trigger.
+    paths: [config/market-data-activation.json]
   schedule:
-    # UTC 37 minutes after each hour, avoids GitHub's busiest cron boundary.
+    # UTC 37 minutes after each hour.
     - cron: "37 * * * *"
   workflow_dispatch:
     inputs:
       publish:
-        description: "Attempt Git publication (requires DERIBIT_ARCHIVE_ENABLED=true)"
+        description: "Request Git publication (also requires checked-in activation=true)"
         type: boolean
         required: true
         default: false
@@ -21,16 +26,13 @@ concurrency:
 
 jobs:
   read-only-acceptance:
-    # A missing variable resolves to empty and safely disables scheduled work.
-    if: ${{ github.event_name == 'workflow_dispatch' || vars.DERIBIT_ARCHIVE_ENABLED == 'true' }}
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     outputs:
       slot: ${{ steps.slot.outputs.slot }}
+      enabled: ${{ steps.activation.outputs.enabled }}
     steps:
-      - name: Pin UTC slot across acceptance and publication
-        id: slot
-        run: echo "slot=$(date -u +'%Y-%m-%dT%H:00:00Z')" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
@@ -42,13 +44,25 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      - name: Validate repository-controlled production activation
+        id: activation
+        run: PYTHONPATH=src python -m nasset.deribit_activation
+
+      - name: Pin UTC slot across acceptance and publication
+        id: slot
+        if: "${{ steps.activation.outputs.enabled == 'true' || github.event_name == 'workflow_dispatch' }}"
+        run: echo "slot=$(date -u +'%Y-%m-%dT%H:00:00Z')" >> "$GITHUB_OUTPUT"
+
       - name: Install archive dependencies
+        if: "${{ steps.activation.outputs.enabled == 'true' || github.event_name == 'workflow_dispatch' }}"
         run: pip install -e ".[archive]"
 
       - name: Verify Deribit live source contract
+        if: "${{ steps.activation.outputs.enabled == 'true' || github.event_name == 'workflow_dispatch' }}"
         run: python -m nasset.deribit_probe --config config/market-data.yml
 
       - name: Build and validate due UTC-hour batch without Git writes
+        if: "${{ steps.activation.outputs.enabled == 'true' || github.event_name == 'workflow_dispatch' }}"
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -56,10 +70,9 @@ jobs:
 
   publish:
     needs: read-only-acceptance
-    # Production branch updates are impossible until an operator explicitly
-    # creates the repository variable DERIBIT_ARCHIVE_ENABLED=true.
-    # The manual path additionally requires publish=true.
-    if: ${{ github.ref == 'refs/heads/main' && vars.DERIBIT_ARCHIVE_ENABLED == 'true' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.publish == true)) }}
+    # Every write requires main, successful read-only acceptance, and the
+    # explicit versioned activation policy committed in the checkout.
+    if: ${{ github.ref == 'refs/heads/main' && needs.read-only-acceptance.outputs.enabled == 'true' && (github.event_name == 'schedule' || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish == true)) }}
     permissions:
       contents: write
     runs-on: ubuntu-latest

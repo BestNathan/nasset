@@ -118,8 +118,8 @@ def test_hourly_archive_workflow_is_explicitly_publish_gated():
     assert set(jobs) == {"read-only-acceptance", "publish"}
     read_only = jobs["read-only-acceptance"]
     writer = jobs["publish"]
-    assert "DERIBIT_ARCHIVE_ENABLED" in read_only["if"]
-    assert "DERIBIT_ARCHIVE_ENABLED" in writer["if"]
+    assert "github.ref == 'refs/heads/main'" in read_only["if"]
+    assert "needs.read-only-acceptance.outputs.enabled == 'true'" in writer["if"]
     assert "inputs.publish == true" in writer["if"]
     assert writer["permissions"]["contents"] == "write"
     assert writer["needs"] == "read-only-acceptance"
