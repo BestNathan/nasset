@@ -74,3 +74,38 @@ def test_reject_unknown_fields_and_misaligned_slots():
         part_path("option_chain", CAPTURE, underlying="BTC")
     with pytest.raises(ValueError, match="uppercase"):
         part_path("option_chain", SLOT, underlying="../BTC")
+
+
+def test_cross_dataset_asof_join_requires_exact_index_and_staleness_cap():
+    """A consumer must never join a BTC/USDC quote to BTC/USD by base alone."""
+    import pandas as pd
+    from datetime import timedelta
+
+    options = pq.read_table(BytesIO(encode_part("option_chain", [
+        {"instrument_name": "BTC-USD-C", "underlying_index": "btc_usd",
+         "underlying_price": 70000.0},
+        {"instrument_name": "BTC-USDC-C", "underlying_index": "btc_usdc",
+         "underlying_price": 70001.0},
+        {"instrument_name": "ETH-USD-C", "underlying_index": "eth_usd",
+         "underlying_price": 3000.0},
+    ], slot=SLOT, captured_at=CAPTURE))).to_pandas()
+    current = pq.read_table(BytesIO(encode_part("index_price", [
+        {"index_name": "btc_usd", "index_price": 70123.0},
+        {"index_name": "btc_usdc", "index_price": 70098.0},
+    ], slot=SLOT, captured_at=CAPTURE))).to_pandas()
+    old_capture = CAPTURE - timedelta(hours=1)
+    old = pq.read_table(BytesIO(encode_part("index_price", [
+        {"index_name": "eth_usd", "index_price": 2999.0},
+    ], slot=SLOT - timedelta(hours=1), captured_at=old_capture))).to_pandas()
+    indexes = pd.concat([old, current], ignore_index=True)
+
+    joined = pd.merge_asof(
+        options.sort_values("captured_at"),
+        indexes.sort_values("captured_at"),
+        on="captured_at", left_by="underlying_index", right_by="index_name",
+        tolerance=pd.Timedelta(minutes=15), direction="backward",
+    ).set_index("instrument_name")
+    assert joined.loc["BTC-USD-C", "index_price"] == 70123.0
+    assert joined.loc["BTC-USDC-C", "index_price"] == 70098.0
+    assert joined.loc["BTC-USD-C", "underlying_price"] == 70000.0
+    assert pd.isna(joined.loc["ETH-USD-C", "index_price"])
