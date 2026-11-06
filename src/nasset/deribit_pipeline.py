@@ -176,6 +176,13 @@ def prepare_live_batch(
         ds = by_name["historical_volatility"]
         for asset in ds.underlyings:
             rows = client.historical_volatility(asset)
+            # Deribit may include a forward-dated trailing HV observation.
+            # It is not a completed historical measurement at this capture
+            # instant. Defer it to a later daily poll without inventing a
+            # timestamp or rejecting otherwise valid historical events.
+            capture_ms = int(instant.timestamp() * 1000)
+            rows = tuple(row for row in rows
+                         if row["event_timestamp"] <= capture_ms)
             fresh, markers = unseen_events(
                 "historical_volatility", asset, rows,
                 observed_at=instant, existing=existing,
