@@ -181,7 +181,7 @@ def test_deployment_workflow_only_runs_on_main_without_pr_or_schedule():
     job = root["jobs"]["manage"]
     assert "github.repository == 'BestNathan/nasset'" in job["if"]
     assert "github.ref == 'refs/heads/main'" in job["if"]
-    assert job["permissions"] if "permissions" in job else True
+    assert "permissions" not in job  # inherits workflow-level contents:read
     assert job["env"]["AWS_ACCESS_KEY_ID"] == "${{ secrets.NASSET_AWS_ACCESS_KEY_ID }}"
     assert job["env"]["AWS_SECRET_ACCESS_KEY"] == "${{ secrets.NASSET_AWS_SECRET_ACCESS_KEY }}"
     steps = job["steps"]
