@@ -46,7 +46,7 @@ jobs:
 
       - name: Validate repository-controlled production activation
         id: activation
-        run: python -m nasset.deribit_activation
+        run: PYTHONPATH=src python -m nasset.deribit_activation
 
       - name: Pin UTC slot across acceptance and publication
         id: slot
