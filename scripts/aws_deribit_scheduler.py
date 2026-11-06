@@ -70,9 +70,13 @@ def assume_role_policy(service: str, *, source_account=None, source_arn=None) ->
     statement = {"Effect": "Allow", "Principal": {"Service": service},
                  "Action": "sts:AssumeRole"}
     if source_account:
+        # Scheduler supplies a *schedule group* SourceArn, never the individual
+        # schedule ARN (AWS confused-deputy prevention requirement).
         statement["Condition"] = {
-            "StringEquals": {"aws:SourceAccount": source_account},
-            "ArnLike": {"aws:SourceArn": source_arn},
+            "StringEquals": {
+                "aws:SourceAccount": source_account,
+                "aws:SourceArn": source_arn,
+            },
         }
     return {"Version": "2012-10-17", "Statement": [statement]}
 
@@ -137,9 +141,8 @@ def create_or_update_lambda(client, config: dict, role_arn: str,
     try:
         current = client.get_function(FunctionName=name)
         arn = current["Configuration"]["FunctionArn"]
-        ensure_managed_tags(client.list_tags(Resource=arn)["Tags"] and [
-            {"Key": k, "Value": v} for k, v in client.list_tags(Resource=arn)["Tags"].items()
-        ] or [])
+        tags = client.list_tags(Resource=arn)["Tags"]
+        ensure_managed_tags([{"Key": k, "Value": v} for k, v in tags.items()])
         if current["Configuration"]["CodeSha256"] != digest:
             client.update_function_code(FunctionName=name, ZipFile=package)
             client.get_waiter("function_updated_v2").wait(FunctionName=name)
@@ -211,7 +214,7 @@ def apply(args, session, account: str, partition: str) -> dict:
     ensure_secret(ssm, args.token_parameter)
     arn = f"arn:{partition}:lambda:{region}:{account}:function:{names['lambda']}"
     scheduler_source = (
-        f"arn:{partition}:scheduler:{region}:{account}:schedule/{names['group']}/{names['schedule']}"
+        f"arn:{partition}:scheduler:{region}:{account}:schedule-group/{names['group']}"
     )
     lambda_role = upsert_role(
         iam, names["lambda_role"],
