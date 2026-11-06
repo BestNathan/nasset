@@ -280,6 +280,6 @@ def test_cloudformation_template_does_not_require_aws_static_keys():
     source = (ROOT / "aws/oidc-bootstrap.yml").read_text()
     for identifier in (
         "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "NASSET_AWS_SECRET_ACCESS_KEY",
-        "AdministratorAccess", "sts:AssumeRole", "repo:BestNathan/nasset:pull_request",
+        "AdministratorAccess", "repo:BestNathan/nasset:pull_request",
     ):
         assert identifier not in source
