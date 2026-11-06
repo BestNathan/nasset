@@ -590,5 +590,11 @@ def test_large_manifest_preflight_uses_bounded_historical_year_tree():
                   if method == "GET" and path.startswith("/git/trees/")]
     assert len([path for path in tree_reads if "?recursive=1" in path]) == 1
     assert not any(path.startswith("/git/trees/tree0?recursive") for path in tree_reads)
-    assert len(tree_reads) < 25
+    # Directory traversal is bounded by identity/year, not event count.
+    one_key = {next(iter(markers)): EVENT_BLOB}
+    baseline = published_slot_session(raw={**PARTS, **one_key})
+    assert publisher(baseline).completed_slot(SLOT_RECEIPT)
+    baseline_reads = [p for method, p, _ in baseline.calls
+                      if method == "GET" and p.startswith("/git/trees/")]
+    assert len(tree_reads) == len(baseline_reads)
     assert all(method == "GET" for method, _, _ in session.calls)
