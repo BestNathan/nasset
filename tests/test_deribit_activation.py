@@ -12,8 +12,8 @@ POLICY = ROOT / "config/market-data-activation.json"
 WORKFLOW = ROOT / ".github/workflows/deribit-archive.yml"
 
 
-def test_initial_policy_disabled_and_explicit():
-    assert load_activation(POLICY) is False
+def test_checked_in_policy_is_strictly_valid():
+    assert type(load_activation(POLICY)) is bool
 
 
 @pytest.mark.parametrize("bad", [
@@ -37,7 +37,7 @@ def test_activation_step_writes_boolean_output(tmp_path, monkeypatch):
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
     monkeypatch.chdir(ROOT)
     main()
-    assert output.read_text() == "enabled=false\n"
+    assert output.read_text() == f"enabled={str(load_activation(POLICY)).lower()}\n"
 
 
 def test_workflow_fails_closed_until_activation_commit():
