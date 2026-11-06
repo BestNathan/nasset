@@ -180,3 +180,37 @@ def test_settlement_marker_preserves_native_day_and_rejects_future():
     with pytest.raises(ValueError, match="future-dated"):
         event_marker("delivery_price", "btc_usd",
                      {**row, "event_date": "2099-01-01"}, observed_at=NOW)
+
+
+def test_forward_dated_hv_is_deferred_without_losing_completed_history():
+    future = int(NOW.timestamp() * 1000) + 3600000
+
+    def forward_transport(method, params):
+        if method == "get_historical_volatility":
+            return [[OLD, 50.0], [future, 51.0]]
+        return transport(method, params)
+
+    batch = prepare_live_batch(config("historical_volatility"),
+                               DeribitClient(transport=forward_transport), NOW,
+                               existing=lambda paths: {})
+    hv_parts = {path: payload for path, payload in batch.parts.items()
+                if "/historical_volatility/" in path and path.endswith(".parquet")}
+    assert len(hv_parts) == 2
+    for payload in hv_parts.values():
+        table = pq.read_table(BytesIO(payload))
+        assert table.column("event_timestamp").to_pylist() == [OLD]
+    assert not any(str(future) in path for path in batch.parts)
+
+
+def test_forward_only_hv_poll_has_no_new_events():
+    future = int(NOW.timestamp() * 1000) + 3600000
+
+    def forward_only(method, params):
+        if method == "get_historical_volatility":
+            return [[future, 51.0]]
+        return transport(method, params)
+
+    batch = prepare_live_batch(config("historical_volatility"),
+                               DeribitClient(transport=forward_only), NOW,
+                               existing=lambda paths: {})
+    assert batch.parts == {}
