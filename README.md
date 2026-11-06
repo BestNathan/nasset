@@ -111,6 +111,21 @@ It:
 
 The Pages app is static and has no runtime API keys.
 
+## AWS Deribit scheduler: GitHub Secrets deployment (no local tools)
+
+The hourly Deribit archive can use AWS EventBridge Scheduler → Lambda →
+GitHub Actions as an external scheduler. The AWS infrastructure is managed
+entirely by [GitHub Actions](.github/workflows/aws-deribit-deploy.yml) using
+three repository Secrets; there is no need to install AWS CLI or `boto3` on
+your own machine. All configuration changes are recorded in
+[config/aws-deribit-scheduler.json](config/aws-deribit-scheduler.json),
+initially `not_deployed` to prevent accidental cloud charges.
+
+The workflow first provisions a **disabled** schedule, then enables it after
+verification. Source code, credentials configuration, minimal IAM permissions
+and setup steps are in [aws/README.md](aws/README.md). Avoid placing AWS
+access keys or GitHub PATs in the repository or in ChatGPT.
+
 ## Run locally
 
 ```bash
