@@ -1,342 +1,473 @@
 "use strict";
 
-/* Read-only projection of immutable market-data. No GitHub tokens in browser. */
-const ROOT = "https://github.com/BestNathan/nasset/blob/market-data/";
-const state = {
-  data: null, error: null, asset: "BTC", tab: "overview",
-  optionSide: "all", optionDte: "all", optionOtm: "all",
-  optionSort: "expiry", optionSearch: "", optionPage: 0,
-};
+/* Mathematical inputs are the offline-verified, versioned Pages JSON projection. */
 const $ = id => document.getElementById(id);
-const esc = text => String(text ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;")
-  .replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
-const valid = n => n !== null && n !== undefined && n !== "" && Number.isFinite(Number(n));
-const num = (value, decimals=2) => valid(value) ? Number(value).toLocaleString("en-US", {
-  minimumFractionDigits: decimals, maximumFractionDigits: decimals,
+const state = {
+  data: null, asset: "BTC", family: "inverse", tab: "surface",
+  selectedExpiry: null, optionSide: "all", optionTenor: "all",
+  optionSearch: "", optionSort: "oi", optionPage: 0,
+};
+const esc = value => String(value ?? "").replaceAll("&","&amp;").replaceAll("<","&lt;")
+  .replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;");
+const finite = value => value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
+const money = (value, digits=1) => finite(value) ? Number(value).toLocaleString("en-US",{
+  minimumFractionDigits:digits,maximumFractionDigits:digits,
 }) : "—";
-const integer = value => valid(value) ? Number(value).toLocaleString("en-US", {maximumFractionDigits:0}) : "—";
-const pct = value => valid(value) ? num(value, 1) + "%" : "—";
-const kb = bytes => valid(bytes) ? num(Number(bytes) / 1024, 1) + " KB" : "—";
-const localTime = iso => iso ? new Intl.DateTimeFormat("zh-CN", {
-  timeZone: "Asia/Singapore", year: "numeric", month: "2-digit", day: "2-digit",
-  hour: "2-digit", minute: "2-digit", hour12: false,
-}).format(new Date(iso)) : "—";
-const hhmm = iso => iso ? new Intl.DateTimeFormat("en-GB", {
-  timeZone: "UTC", hour: "2-digit", minute: "2-digit", hour12: false,
-}).format(new Date(iso)) : "—";
-const last = () => state.data?.latest || {};
-const latestSlot = () => state.data?.latest_slot || "";
-const dataRows = dataset => last()[dataset] || [];
-const nativeLink = path => ROOT + path.split("/").map(encodeURIComponent).join("/");
+const signed = (value, digits=1) => finite(value) ? (Number(value)>0?"+":"")+money(value,digits) : "—";
+const int = value => finite(value)?Number(value).toLocaleString("en-US",{maximumFractionDigits:0}):"—";
+const compact = value => {
+  if(!finite(value))return "—";
+  const n=Number(value),abs=Math.abs(n);
+  if(abs>=1e9)return (n/1e9).toFixed(2)+"B";
+  if(abs>=1e6)return (n/1e6).toFixed(2)+"M";
+  if(abs>=1e3)return (n/1e3).toFixed(1)+"K";
+  return money(n,1);
+};
+const iv = value => finite(value)?money(value,1)+"%":"—";
+const vp = value => finite(value)?signed(value,2)+" vol":"—";
+const dateUtc = value => {
+  if(!value || Number.isNaN(new Date(value).getTime()))return "—";
+  return new Intl.DateTimeFormat("en-GB",{
+    day:"2-digit",month:"short",timeZone:"UTC",year:"2-digit",
+  }).format(new Date(value));
+};
+const ts = value => value?new Date(value).toISOString().slice(0,16).replace("T"," ")+" UTC":"—";
+const assetModel = () => state.data?.analytics?.assets?.[state.asset] || null;
+const market = () => assetModel()?.markets?.[state.family] || null;
+const latestChain = () => (state.data?.latest?.option_chain || []).filter(r=>
+  r.base_currency===state.asset &&
+  (state.family==="inverse" ? r.settlement_currency===state.asset :
+    ["USDC","USDT","USD"].includes(r.settlement_currency)));
+const methodPill = label => '<span class="quant-pill">'+esc(label)+'</span>';
+const panelTitle = (title,detail="") => '<div class="quant-panel-title"><h3>'+esc(title)+'</h3>'+
+  (detail?'<span>'+esc(detail)+'</span>':"")+'</div>';
+const empty = (text) => '<div class="quant-placeholder">'+esc(text)+'</div>';
+const chartTag = (content,label) => '<svg viewBox="0 0 740 250" class="quant-chart" role="img" aria-label="'+esc(label)+'">'+content+'</svg>';
 
-function health() {
-  const slot = latestSlot();
-  if (!slot) return {label: "暂无归档", klass: "stale"};
-  const elapsed = (Date.now() - new Date(slot).getTime()) / 60000;
-  if (elapsed < 0) return {label: "时段时间异常", klass: "stale"};
-  if (elapsed > 95) return {label: "归档已延迟 · 请检查调度", klass: "stale"};
-  return {label: "归档正在更新", klass: ""};
+function lineChart(series, opts={}) {
+  const W=740,H=250,L=65,R=20,T=18,B=37;
+  const points=series.flatMap(s=>(s.points||[]).filter(p=>finite(p.x)&&finite(p.y)));
+  if(!points.length)return empty("当前没有可计算的期限节点。");
+  let loX=Math.min(...points.map(p=>Number(p.x))), hiX=Math.max(...points.map(p=>Number(p.x)));
+  let loY=Math.min(...points.map(p=>Number(p.y))), hiY=Math.max(...points.map(p=>Number(p.y)));
+  if(hiX===loX){loX-=1;hiX+=1;}
+  const span=Math.max(hiY-loY,.8);loY-=span*.18;hiY+=span*.18;
+  if(opts.includeZero){loY=Math.min(0,loY);hiY=Math.max(0,hiY);}
+  const xx=x=>L+(Number(x)-loX)/(hiX-loX)*(W-L-R);
+  const yy=y=>T+(hiY-Number(y))/(hiY-loY)*(H-T-B);
+  let grid="";
+  for(let i=0;i<=4;i++){
+    const v=hiY-(hiY-loY)*i/4,y=yy(v);
+    grid+='<line class="quant-gridline" x1="'+L+'" y1="'+y+'" x2="'+(W-R)+'" y2="'+y+'"/>'+
+      '<text class="quant-axis" text-anchor="end" x="'+(L-9)+'" y="'+(y+4)+'">'+esc(money(v,opts.precision??1))+'</text>';
+  }
+  for(let i=0;i<=4;i++){
+    const v=loX+(hiX-loX)*i/4;
+    grid+='<text class="quant-axis" text-anchor="middle" x="'+xx(v)+'" y="'+(H-9)+'">'+
+      esc(int(v))+esc(opts.xUnit||"D")+'</text>';
+  }
+  const paths=series.map((s,index)=>{
+    const sorted=(s.points||[]).filter(p=>finite(p.x)&&finite(p.y)).sort((a,b)=>a.x-b.x);
+    if(!sorted.length)return "";
+    const klass=index===1?"alt":index===2?"third":"";
+    const data=sorted.map((p,i)=>(i?"L":"M")+xx(p.x).toFixed(2)+","+yy(p.y).toFixed(2)).join(" ");
+    return '<path class="quant-chart-line '+klass+'" d="'+data+'"></path>'+
+      sorted.map(p=>'<circle cx="'+xx(p.x).toFixed(2)+'" cy="'+yy(p.y).toFixed(2)+'" r="3.5" fill="'+
+        (index===1?"#8ab6f3":index===2?"#eda7a2":"#d4ff5f")+'"><title>'+esc(s.name+': '+money(p.y,2)+' @ '+money(p.x,1)+'D')+'</title></circle>').join("");
+  }).join("");
+  const legend='<div class="quant-chart-legend">'+series.map((s,i)=>'<span><b class="'+(i===1?"blue":i===2?"rose":"")+
+    '"></b>'+esc(s.name)+'</span>').join("")+'</div>';
+  return chartTag(grid+paths,opts.label||"期限结构图")+legend;
 }
 
-function renderSummary() {
-  const d = state.data;
-  const cards = [
-    ["最近已归档时段", d.latest_slot ? hhmm(d.latest_slot) + " UTC" : "—", "UTC 小时标记，不是快照采样秒数"],
-    ["已验证小时回执", integer(d.slots.length), "最近 " + integer(d.slots.length) + " 个已存档时段（最多 24）"],
-    ["期权合约快照", integer(dataRows("option_chain").length), "BTC / ETH · 当前最新批次"],
-    ["最新 Parquet 体积", kb(d.slots.at(-1)?.parquet_bytes), "ZSTD · 不包含 Manifest / Receipt"],
+function surfacePoint(expiry,column) {
+  if(!expiry || !finite(expiry.nodes?.[column]))return null;
+  return Number(expiry.nodes[column]);
+}
+
+function kpi(label,value,tag,note,klass="") {
+  return '<article class="quant-kpi"><div class="label"><span>'+esc(label)+
+    '</span><span class="tag">'+esc(tag)+'</span></div><div class="number '+klass+'">'+
+    esc(value)+'</div><div class="note">'+esc(note)+'</div></article>';
+}
+
+function renderKpis(){
+  const a=assetModel(), m=market(), risk=m?.risk, metrics=risk?.metrics || {};
+  const t30=m?.tenors?.find(n=>n.target_days===30);
+  const notional=finite(metrics.oi_units)&&finite(a?.reference_price) ?
+    Number(metrics.oi_units)*Number(a.reference_price):null;
+  const cards=state.asset==="PAXG" ? [
+    ["参考指数",finite(a?.reference_price)?"$"+money(a.reference_price,2):"—","SPOT","独立指数参考"],
+    ["永续 / 期货",int(a?.futures?.length||0),"FUT","当前上市合约"],
+    ["期权市场","未上市","OPTIONS","不生成不存在的 Greeks"],
+    ["DVOL","—","IV INDEX","该标的无 DVOL"],
+    ["基差节点",int(a?.futures?.filter(f=>finite(f.annualized_basis_pct)).length||0),"BASIS","有可比指数的期限报价"],
+    ["风险面","—","OI GREEKS","需要期权持仓与波动率"],
+  ] : [
+    ["30D ATM IV",iv(t30?.atm),"BLACK-76","期限间插值，缺值不外推"],
+    ["25Δ Risk Reversal",vp(t30?.rr25),"25D / 30D","Call IV − Put IV"],
+    ["25Δ Butterfly",vp(t30?.bf25),"25D / 30D","翼部 IV 溢价"],
+    ["DVOL",iv(a?.dvol_pct),"DERIBIT","最后完成小时的 DVOL"],
+    ["Options OI",notional===null?"—":"$"+compact(notional),"USD NOTIONAL","公示 OI 估计名义敞口"],
+    ["Gross Gamma / 1%",finite(metrics.gamma_1pct_usd)?"$"+compact(metrics.gamma_1pct_usd):"—","MODEL","OI 加权美元 Delta 敏感度"],
   ];
-  $("market-summary").innerHTML = cards.map(([label,value,desc]) =>
-    '<div class="market-stat"><div class="market-stat-title">' + esc(label) +
-    '</div><div class="market-stat-value">' + esc(value) +
-    '</div><div class="market-stat-desc">' + esc(desc) + '</div></div>').join("");
-  const status = health();
-  $("market-health").className = "market-health" + (status.klass ? " " + status.klass : "");
-  $("market-health").innerHTML = '<span class="market-health-dot"></span>' + esc(status.label);
-  $("market-last-slot").textContent = d.latest_slot ? hhmm(d.latest_slot) + " UTC" : "—";
-  $("market-last-local").textContent = d.latest_slot ? localTime(d.latest_slot) + " · UTC+8 归档时段" : "当前尚无可验证小时回执";
-  const receipt = d.slots.at(-1)?.receipt_path;
-  if (receipt) $("market-receipt-link").href = nativeLink(receipt);
+  $("quant-kpis").innerHTML=cards.map(row=>kpi(...row)).join("");
 }
 
-function panelTitle(title, subtitle, badge="") {
-  return '<div class="market-panel-top"><div><h3>' + esc(title) +
-    '</h3><div class="market-panel-sub">' + esc(subtitle) + '</div></div>' +
-    (badge ? '<span class="market-source-tag">' + esc(badge) + '</span>' : '') + '</div>';
-}
-
-function chart(points, {secondary=false, suffix="", decimals=2}={}) {
-  const clean = points.filter(p => valid(p.value) && Number.isFinite(new Date(p.slot).getTime()))
-    .map(p => ({ms: new Date(p.slot).getTime(), value: Number(p.value)}))
-    .sort((a,b) => a.ms-b.ms);
-  if (!clean.length) return '<div class="market-empty">该标的在已归档时段内没有可用观测值。</div>';
-  const W=700,H=260,L=67,R=18,T=17,B=39,plotW=W-L-R,plotH=H-T-B;
-  const values=clean.map(p=>p.value), min0=Math.min(...values),max0=Math.max(...values);
-  const margin=Math.max((max0-min0)*.14, Math.abs(max0)*.006, .01);
-  const min=min0-margin,max=max0+margin;
-  const first=clean[0].ms,last=clean.at(-1).ms;
-  const x=p=>L+((p.ms-first)/(last-first || 1))*plotW;
-  const y=p=>T+(1-(p.value-min)/(max-min))*plotH;
-  const steps=4;
-  const grids=Array.from({length:steps+1},(_,i)=>{
-    const yy=T+(plotH*i/steps), v=max-(max-min)*i/steps;
-    return '<line class="market-chart-grid" x1="'+L+'" y1="'+yy+'" x2="'+(W-R)+'" y2="'+yy+'"></line>' +
-      '<text class="market-chart-axis" x="'+(L-9)+'" y="'+(yy+4)+'" text-anchor="end">'+
-      esc(num(v,decimals))+'</text>';
-  }).join("");
-  const seg=[];let current=[];
-  for(const p of clean){
-    if(current.length && p.ms-current.at(-1).ms>90*60000){seg.push(current);current=[];}
-    current.push(p);
+function chooseProduct(){
+  const a=assetModel(),available=a?.markets || {};
+  if(!available[state.family]){
+    state.family=available.inverse?"inverse":available.linear?"linear":"inverse";
   }
-  if(current.length)seg.push(current);
-  const pathClass="market-chart-path"+(secondary?" secondary":"");
-  const lines=seg.map(points=>{
-    if(points.length===1){const p=points[0];return '<circle class="market-chart-dot" cx="'+x(p)+'" cy="'+y(p)+'" r="4"></circle>';}
-    return '<polyline class="'+pathClass+'" points="'+points.map(p=>x(p).toFixed(1)+","+y(p).toFixed(1)).join(" ")+'"></polyline>';
-  }).join("");
-  const timestamps=[clean[0],clean[Math.floor((clean.length-1)/2)],clean.at(-1)];
-  const axis=timestamps.map((p,i)=>'<text class="market-chart-axis" x="'+x(p)+'" y="'+(H-10)+'" text-anchor="'+(i===0?"start":i===2?"end":"middle")+'">'+esc(hhmm(new Date(p.ms).toISOString()))+'</text>').join("");
-  return '<svg class="market-line-chart" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+esc(clean.length+' 次归档记录，'+suffix)+'">'+grids+lines+axis+'</svg>' +
-    '<div class="market-series-label"><span>首条：'+esc(num(clean[0].value,decimals))+esc(suffix)+'</span>' +
-    '<strong>最新：'+esc(num(clean.at(-1).value,decimals))+esc(suffix)+'</strong></div>';
 }
-
-function indexSeries(asset) {
-  const all=(state.data.history || []).flatMap(row=>row.indexes.map(x=>({...x,slot:row.slot})))
-    .filter(x=>x.base_currency===asset && valid(x.index_price));
-  const names=[...new Set(all.map(x=>x.index_name))].sort((a,b)=>{
-    const priority=x=>x.endsWith("_usd")?0:x.endsWith("_usdc")?1:2;
-    return priority(a)-priority(b)||a.localeCompare(b);
+function syncControls(){
+  $("quant-asof").innerHTML='<span>SNAPSHOT / UTC</span><strong>'+esc(ts(state.data?.latest_slot))+'</strong>';
+  document.querySelectorAll("[data-asset]").forEach(b=>{
+    const active=b.dataset.asset===state.asset;b.classList.toggle("active",active);b.setAttribute("aria-pressed",String(active));
   });
-  const name=names[0]||null;
-  return {name,points:all.filter(x=>x.index_name===name).map(x=>({slot:x.slot,value:x.index_price}))};
+  $("quant-family-switch").hidden=state.asset==="PAXG";
+  document.querySelectorAll("[data-family]").forEach(b=>{
+    const active=b.dataset.family===state.family;b.classList.toggle("active",active);b.setAttribute("aria-pressed",String(active));
+    b.disabled=!assetModel()?.markets?.[b.dataset.family];
+  });
+  document.querySelectorAll("[data-tab]").forEach(b=>{
+    const active=b.dataset.tab===state.tab;b.classList.toggle("active",active);b.setAttribute("aria-selected",String(active));
+  });
+  renderKpis();
 }
 
-function dvolSeries(asset) {
-  return (state.data.history || []).flatMap(row=>row.dvol.filter(x=>x.base_currency===asset)
-    .map(x=>({slot:row.slot,value:x.close,event_timestamp:x.event_timestamp})));
+function sectionHead(kicker,title,subtitle,tag=""){
+  return '<div class="quant-section-head"><div><div class="kicker">'+esc(kicker)+'</div><h2>'+
+    esc(title)+'</h2><p class="quant-subtitle">'+esc(subtitle)+'</p></div>'+
+    (tag?methodPill(tag):"")+'</div>';
 }
 
-function renderOverview() {
-  const asset=state.asset, idx=indexSeries(asset),dv=dvolSeries(asset),indexes=dataRows("index_price")
-    .filter(x=>x.base_currency===asset), future=dataRows("futures_curve").filter(x=>x.base_currency===asset);
-  const options=dataRows("option_chain").filter(x=>x.base_currency===asset);
-  const panels='<div class="market-grid">' +
-    '<article class="market-panel">'+panelTitle("指数价格 · " + asset,"按已归档时段的真实指数值绘制；不插值缺失小时。",idx.name||"无指数")+
-    chart(idx.points,{decimals:2})+'<p class="market-note">每条线只连接相邻小时，空档表示没有归档记录。不同 index_name 不混算。</p></article>'+
-    '<article class="market-panel">'+panelTitle("波动率指数 · DVOL","交易所发布的最后完成小时 K 线收盘值；非当小时即时隐含波动率。",asset==="PAXG"?"不支持":"DVOL")+
-    chart(dv,{suffix:"%",decimals:1,secondary:true})+
-    '<p class="market-note">DVOL 来源于 Deribit 原生小时 K 线，BTC/ETH 可用；PAXG 不提供此数据集。</p></article></div>';
-
-  const bars=[["期权合约","期权链（仅 BTC / ETH）",options.length],["期货 / 永续","真实在列合约",future.length],
-    ["指数价格","完整指数名称",indexes.length],["DVOL","已完成小时记录",dv.length?1:0]];
-  const total=Math.max(...bars.map(x=>x[2]),1);
-  const coverage='<article class="market-panel"><div class="market-mini-head"><h3>'+esc(asset)+' · 最新时段覆盖</h3><span class="market-source-tag">SOURCE COVERAGE</span></div>'+
-    '<div class="market-bars">'+bars.map(([name,note,count])=>'<div class="market-bar-row"><div class="market-bar-name">'+esc(name)+'<small>'+esc(note)+'</small></div>'+
-      '<div class="market-bar-track"><div class="market-bar-fill" style="width:'+((count/total)*100).toFixed(2)+'%"></div></div><div class="market-bar-value">'+integer(count)+'</div></div>').join("")+
-    '</div><p class="market-note">柱长相对当前标的最多行数，仅表示数量，不表示数据质量或流动性。期权 Delta 尚未归档。</p></article>';
-  const indexTable='<article class="market-panel">'+panelTitle("最新原始指数","原生计价货币和完整指数标识，不合并 USD / USDC。", "INDEX NAMES")+
-    (indexes.length?'<div class="market-indices">'+indexes.map(x=>'<div class="market-index-row"><span>'+esc(x.index_name)+'</span><strong>'+esc(num(x.index_price,2))+'</strong><small>'+esc(x.quote_currency)+'</small></div>').join("")+'</div>':'<div class="market-empty">无该标的指数观测。</div>')+
-    '<p class="market-note">指数价格和期权报价单位不同；请勿将原生期权 bid 直接视作美元权利金。</p></article>';
-  return panels+'<div class="market-section-heading"><div><h3>最新快照的真实覆盖</h3><p>只统计最新 UTC 时段成功归档的原始记录。</p></div>'+
-    '<span class="market-count-chip">'+esc(hhmm(latestSlot()))+' UTC</span></div><div class="market-grid">'+coverage+indexTable+'</div>';
+const COLS=[["10p","10Δ Put"],["25p","25Δ Put"],["atm","ATM"],["25c","25Δ Call"],["10c","10Δ Call"]];
+function surfaceHeatmap(){
+  const m=market();
+  if(!m?.expiries?.length)return empty("该产品线没有足够的 IV 标记数据构建波动率平面。");
+  const expiries=m.expiries.filter(e=>e.days>0);
+  const all=expiries.flatMap(e=>COLS.map(([k])=>surfacePoint(e,k))).filter(finite);
+  const min=all.length?Math.min(...all):0,max=all.length?Math.max(...all):100;
+  const map=(value)=>{
+    const share=max>min?(value-min)/(max-min):.5;
+    return (18+share*45).toFixed(0)+"%";
+  };
+  const html=expiries.map(e=>{
+    const selected=state.selectedExpiry===e.expiry;
+    return '<tr><td>'+esc(dateUtc(e.expiry))+'<small>'+esc(money(e.days,0))+' DTE</small></td>'+
+      COLS.map(([k])=>{
+        const value=surfacePoint(e,k);
+        if(value===null)return '<td><span class="quant-heatcell none">—</span></td>';
+        const active=selected?" selected":"";
+        return '<td><button class="quant-heatcell'+active+'" type="button" data-surface-expiry="'+
+          esc(e.expiry)+'" data-surface-node="'+esc(k)+'" style="--intensity:'+map(value)+'" title="'+
+          esc(dateUtc(e.expiry)+" "+k+" "+money(value,2)+"% Mark IV")+'"><strong>'+iv(value)+
+          '</strong><small>'+esc(k==="atm"?"近远期":"Black-76 Δ")+'</small></button></td>';
+      }).join("")+'</tr>';
+  }).join("");
+  return '<div class="quant-heatmap-outer"><table class="quant-heatmap">'+
+    '<thead><tr><th>到期 / Tenor</th>'+COLS.map(([k,label])=>'<th>'+esc(label)+'</th>').join("")+
+    '</tr></thead><tbody>'+html+'</tbody></table></div>'+
+    '<p class="quant-surface-note">每个格子使用已挂牌 Mark IV；10/25Δ 节点仅在相邻模型 Delta 有真实双侧报价时插值，缺失值保留为空。点击到期月份查看期限摘要。</p>';
+}
+function surfaceDetail(){
+  const m=market();
+  const selected=m?.expiries?.find(e=>e.expiry===state.selectedExpiry) ||
+    m?.expiries?.find(e=>e.days>=7&&e.days<=90) || m?.expiries?.[0];
+  if(!selected)return empty("没有可检查的期权到期日。");
+  state.selectedExpiry=selected.expiry;
+  const stats=[["ATM IV",iv(selected.atm)],["25Δ RR",vp(selected.rr25)],
+    ["25Δ BF",vp(selected.bf25)],["Forward",finite(selected.forward)?"$"+money(selected.forward,0):"—"]];
+  const display=stats.map(([key,val])=>'<div class="quant-expiry-stat"><span class="label">'+esc(key)+
+    '</span><strong>'+esc(val)+'</strong></div>').join("");
+  return '<article class="quant-panel">'+panelTitle("选中期限 · "+dateUtc(selected.expiry),money(selected.days,1)+" DTE")+
+    '<div class="quant-expiry-details">'+display+'</div><p class="quant-panel-desc" style="margin-top:14px">'+
+    esc(int(selected.contracts))+' 个挂牌合约参与 IV 节点构建。25Δ 风险逆转与蝶式反映的是翼部价格结构，不是方向预测。</p></article>';
 }
 
-function dte(row) {
-  if (!valid(row.expiration_timestamp) || !latestSlot()) return null;
-  return (Number(row.expiration_timestamp)-new Date(latestSlot()).getTime())/86400000;
+function surfaceView(){
+  const m=market();if(!m)return empty("当前市场没有期权 IV 数据。请选择 BTC / ETH 的有效合约市场。");
+  const tenors=m.tenors||[];
+  const atm=tenors.map(n=>({x:n.target_days,y:n.atm}));
+  const rr=tenors.map(n=>({x:n.target_days,y:n.rr25}));
+  const bf=tenors.map(n=>({x:n.target_days,y:n.bf25}));
+  const a=assetModel();
+  return sectionHead("01 / IMPLIED VOLATILITY","Volatility Surface",
+    "按到期日 × 模型 Delta 展示挂牌期权的隐含波动率，实时处理数据来自最近归档的完整期权链。",
+    state.family==="inverse"?"COIN SETTLED":"USDC LINEAR")+
+    '<article class="quant-panel">'+panelTitle("IV surface · Expiry × Delta","MARK IV / %")+surfaceHeatmap()+'</article>'+
+    '<div class="quant-grid equal quant-section-space">'+
+      '<article class="quant-panel">'+panelTitle("ATM 期限结构","7 / 14 / 30 / 60 / 90 / 180D")+
+        lineChart([{name:"ATM Mark IV",points:atm}],{label:"ATM 隐含波动率期限结构"})+'</article>'+
+      '<article class="quant-panel">'+panelTitle("偏斜与尾部溢价","RISK REVERSAL / BUTTERFLY")+
+        lineChart([{name:"25Δ RR",points:rr},{name:"25Δ BF",points:bf}],
+                  {label:"25D Risk Reversal 与 Butterfly",includeZero:true,precision:1})+'</article></div>'+
+    '<div class="quant-grid equal"><div>'+surfaceDetail()+'</div>'+
+      '<article class="quant-panel">'+panelTitle("IV vs Realized","ANNUALIZED / %")+
+        '<div class="quant-risk-stats">'+
+        riskNumber("DVOL","官方30D隐波指数",iv(a?.dvol_pct))+
+        riskNumber("Hourly RV","相邻 1H 收益率年化",iv(a?.rv_hourly_annualized_pct))+
+        riskNumber("30D ATM","远期模型点",iv(m.tenors?.find(n=>n.target_days===30)?.atm))+
+        riskNumber("IV − RV","仅比较有效观测",vp(
+          finite(a?.rv_hourly_annualized_pct) && finite(m.tenors?.find(n=>n.target_days===30)?.atm) ?
+            m.tenors.find(n=>n.target_days===30).atm-a.rv_hourly_annualized_pct:null))+
+        '</div><p class="quant-surface-note">RV 至少需要 12 个真实连续小时收益率；采集历史较短时保持空值。</p></article></div>';
 }
-const DTE_BUCKETS=[["0-7","≤ 7D",0,8],["8-30","8–30D",8,31],["31-60","31–60D",31,61],["61-90","61–90D",61,91],["91+","90D+",91,Infinity]];
-const OTM_BUCKETS=[["0-2","0–2%",0,2],["2-5","2–5%",2,5],["5-10","5–10%",5,10],["10-20","10–20%",10,20],["20+","20%+",20,Infinity]];
-function bucket(value, defs) {
-  if (!valid(value)) return null;
-  return defs.find(([k,n,min,max])=>Number(value)>=min && Number(value)<max)?.[0] || null;
+
+function riskNumber(label,context,value){
+  return '<div class="quant-risk-stat"><span>'+esc(label)+'</span><strong>'+esc(value)+
+    '</strong><small>'+esc(context)+'</small></div>';
 }
-function otm(row) {
-  if (!valid(row.strike) || !valid(row.underlying_price) || Number(row.underlying_price)<=0) return null;
-  const ratio=(Number(row.strike)-Number(row.underlying_price))/Number(row.underlying_price)*100;
-  return row.option_type==="put" ? -ratio : row.option_type==="call"?ratio:null;
+function gammaStrikes(risk){
+  const rows=(risk?.strikes||[]).slice(0,18);
+  if(!rows.length)return empty("未发现可用持仓量，无法计算行权价凸性集中度。");
+  const largest=Math.max(...rows.map(r=>Number(r.gamma_1pct_usd)||0),1);
+  return '<div class="quant-gex-bands">'+rows.map((r,index)=>{
+    const value=r.gamma_1pct_usd || 0,width=Math.max(1,value/largest*100);
+    return '<div class="quant-gex-row'+(index===0?" active":"")+'"><span class="quant-gex-strike">$'+
+      int(r.strike)+'</span><span class="quant-gex-meter" title="'+esc("Gamma "+money(value,2)+" USD / 1%")+
+      '"><span class="quant-gex-fill" style="width:'+width.toFixed(2)+'%"></span></span>'+
+      '<span class="quant-gex-value">$'+compact(value)+'</span></div>';
+  }).join("")+'</div>';
 }
-function optionSource() {
-  return dataRows("option_chain").filter(row=>row.base_currency===state.asset);
+function expiryConcentration(risk){
+  const rows=(risk?.expiries||[]).slice().sort((a,b)=>(b.oi_units||0)-(a.oi_units||0)).slice(0,12);
+  const biggest=Math.max(...rows.map(r=>Number(r.oi_units)||0),1);
+  if(!rows.length)return empty("当前没有可聚合的到期持仓量。");
+  return '<div class="quant-expiry-bars">'+rows.map(r=>{
+    const call=Number(r.call_oi)||0,put=Number(r.put_oi)||0;
+    return '<div class="quant-expiry-row"><span>'+esc(dateUtc(r.expiry))+'</span>'+
+      '<div class="quant-stack" title="'+esc("Call "+money(call,2)+" · Put "+money(put,2))+'">'+
+      '<span class="quant-stack-call" style="width:'+(100*call/biggest).toFixed(2)+'%"></span>'+
+      '<span class="quant-stack-put" style="width:'+(100*put/biggest).toFixed(2)+'%"></span></div>'+
+      '<strong>'+compact(r.oi_units)+' '+esc(state.asset)+'</strong></div>';
+  }).join("")+'</div>'+
+    '<div class="quant-chart-legend"><span><b></b>Call OI</span><span><b class="rose"></b>Put OI</span></div>';
 }
-function matchesBase(row) {
-  return (state.optionSide==="all"||row.option_type===state.optionSide) &&
-    (!state.optionSearch||row.instrument_name.toLowerCase().includes(state.optionSearch.toLowerCase()));
+function shockTable(risk){
+  const rows=risk?.spot_shock||[];
+  const biggest=Math.max(...rows.map(r=>Number(r.gross_delta_rehedge_usd)||0),1);
+  return '<div class="quant-scenario">'+rows.map(r=>'<div class="quant-scenario-row'+
+    (r.move_pct<0?" negative":"")+'"><span>'+signed(r.move_pct,0)+'%</span>'+
+    '<div class="quant-scenario-track"><span class="quant-scenario-fill" style="width:'+
+    (100*(r.gross_delta_rehedge_usd||0)/biggest).toFixed(2)+'%"></span></div>'+
+    '<strong>$'+compact(r.gross_delta_rehedge_usd)+'</strong></div>').join("")+'</div>';
 }
-function filteredOptions() {
-  const rows=optionSource().filter(row=>matchesBase(row) &&
-    (state.optionDte==="all" || bucket(dte(row),DTE_BUCKETS)===state.optionDte) &&
-    (state.optionOtm==="all" || bucket(otm(row),OTM_BUCKETS)===state.optionOtm));
+function riskView(){
+  const m=market();if(!m)return empty("PAXG 当前没有 Deribit 期权链，因此无法建立期权凸性敞口。可切换至期货研究。");
+  const risk=m.risk, metrics=risk?.metrics||{};
+  const top=finite(risk?.gamma_max_strike)?"$"+int(risk.gamma_max_strike):"—";
+  const overview='<div class="quant-grid equal">'+
+    '<article class="quant-panel">'+panelTitle("OI-weighted gross Greeks","BLACK-76 / LONG-ALL ASSUMPTION")+
+      '<div class="quant-risk-stats">'+
+        riskNumber("GEX / 1%","标的 +1% 的美元 Delta 变化","$"+compact(metrics.gamma_1pct_usd))+
+        riskNumber("Vanna / 1 vol pt","IV 上升1个百分点的美元 Delta 绝对变化","$"+compact(metrics.vanna_1volpt_delta_usd))+
+        riskNumber("Charm / 1 day","一天时间流逝的美元 Delta 绝对变化","$"+compact(metrics.charm_1day_delta_usd))+
+        riskNumber("Volga / (1vol pt)²","波动率上升1点的二阶期权 P&L 项","$"+compact(metrics.volga_1volpt2_usd))+
+        riskNumber("Vega / 1 vol pt","IV 变动1点的美元期权价格敏感度","$"+compact(metrics.vega_1volpt_usd))+
+        riskNumber("Put / Call OI","同一结算市场内的持仓量比值",money(risk.put_call_oi_ratio,2))+
+      '</div></article>'+
+    '<article class="quant-panel">'+panelTitle("Convexity concentration","GAMMA / EXPIRY")+
+      '<div class="quant-risk-stats">'+
+        riskNumber("Gamma Wall","最高总 Gamma 加权行权价",top)+
+        riskNumber("≤ 7D Gamma","短期限占全部 Gross Gamma",iv(risk.gamma_7d_share_pct))+
+      '</div><p class="quant-panel-desc" style="margin-top:17px">Gamma Wall 是全市场未平仓量的凸性集中位，不是价格支撑、阻力或所谓 Gamma Flip。</p>'+
+      '<div class="quant-panel-desc">已建模合约：'+int(risk.oi_contracts_with_data)+' / '+int(m.contracts)+
+      ' · 敞口仅使用该结算市场内的 OI</div></article></div>';
+  const warning='<div class="quant-muted-warning"><strong>POSITIONING BOUNDARY</strong>　未平仓量无法分辨做市商是多头还是空头。下面数值均为所有 OI 假设多头情况下的绝对压力测试；它们不能推导真实对冲买卖方向。</div>';
+  return sectionHead("02 / RISK SENSITIVITY","Convexity & Positioning",
+      "Gamma 集中度、跨波动率敏感度、时间衰减和基于未平仓量的情景压力映射。",
+      "MODEL-BASED · NOT DEALER NET")+
+    warning+overview+
+    '<div class="quant-grid quant-section-space"><article class="quant-panel">'+
+      panelTitle("Gamma concentration · Strike","USD Δ CHANGE / +1% UNDERLYING")+
+      gammaStrikes(risk)+'</article><article class="quant-panel">'+
+      panelTitle("OI cluster · Expiry","CALL / PUT OPEN INTEREST")+
+      expiryConcentration(risk)+'</article></div>'+
+    '<div class="quant-grid equal"><article class="quant-panel">'+panelTitle("Gross Δ rehedge · Spot shocks","IV HELD CONSTANT")+
+      shockTable(risk)+'<p class="quant-surface-note">该数值为全 OI 绝对 Delta 变化对应的美元名义量，排除净头寸抵消、库存方向和交易冲击。</p></article>'+
+    '<article class="quant-panel">'+panelTitle("Second-order mechanics","CONVEXITY RESEARCH")+
+      '<div class="quant-risk-stats">'+riskNumber("Gamma","∂Δ/∂F，标的移动敏感度","2nd order")+
+      riskNumber("Vanna","∂Δ/∂σ，波动率变化下的 Delta 敏感度","2nd order")+
+      riskNumber("Volga","∂Vega/∂σ，波动率凸性","2nd order")+
+      riskNumber("Charm","时间流逝带来的 Delta 漂移","time cross")+
+      '</div></article></div>';
+}
+
+function futuresMatrix(asset){
+  const m=assetModel();
+  const history=m?.futures_surface?.[state.family] || [];
+  if(!history.length)return empty("该市场没有足够的历史期货期限结构。");
+  const cols=["7","30","60","90","180"];
+  const all=history.flatMap(h=>cols.map(k=>h.nodes?.[k])).filter(finite);
+  if(!all.length)return empty("尚无可计算的多期限年化基差；可能只有永续合约或到期结构不足。");
+  const cap=Math.max(...all.map(x=>Math.abs(x)),1);
+  return '<div class="quant-heatmap-outer"><table class="quant-heatmap">'+
+    '<thead><tr><th>UTC 观测</th>'+cols.map(k=>'<th>'+k+' D</th>').join("")+'</tr></thead><tbody>'+
+    history.slice().reverse().map(h=>'<tr><td>'+esc(h.slot.slice(5,16).replace("T"," "))+'<small>UTC</small></td>'+
+      cols.map(k=>{
+        const val=h.nodes?.[k];if(!finite(val))return '<td><span class="quant-heatcell none">—</span></td>';
+        const alpha=Math.min(65,20+Math.abs(Number(val))/cap*42);
+        return '<td><span class="quant-heatcell" style="--intensity:'+alpha.toFixed(0)+'%;cursor:default;color:'+
+          (val<0?"#ffd0c9":"#f2ffd8")+'" title="'+esc(k+"天 年化基差 "+money(val,2)+"%")+
+          '">'+signed(val,2)+'%<small>annualized</small></span></td>';
+      }).join("")+'</tr>').join("")+'</tbody></table></div>';
+}
+function futuresView(){
+  const a=assetModel();const rows=(a?.futures||[]).filter(r=>r.family===state.family);
+  const current=rows.filter(r=>finite(r.annualized_basis_pct)&&finite(r.days))
+    .sort((x,y)=>x.days-y.days);
+  const futuresChart=lineChart([{
+    name:"Annualized basis",points:current.map(r=>({x:r.days,y:r.annualized_basis_pct})),
+  }],{label:"远期期货年化基差期限结构",includeZero:true,precision:2});
+  const summary='<div class="quant-grid equal"><article class="quant-panel">'+
+    panelTitle("Annualized forward basis","TERM STRUCTURE · % PA")+
+    futuresChart+'<p class="quant-surface-note">仅匹配相同计价体系的参考指数，且到期剩余≥1天。图中可能出现非均匀到期节点；不把永续资金费率混入基差。</p></article>'+
+    '<article class="quant-panel">'+panelTitle("Forward market snapshot","'+(state.family==="inverse"?"INVERSE / USD":"LINEAR / USDC")+'")+
+    '<div class="quant-risk-stats">'+
+      riskNumber("Reference spot","匹配对应币种指数",finite(a?.reference_price)?"$"+money(a.reference_price,2):"—")+
+      riskNumber("Tradable maturities","具备年化基差观测的合约",int(current.length))+
+      riskNumber("Front contract basis","首个到期合约年化基差",current.length?signed(current[0].annualized_basis_pct,2)+"%":"—")+
+      riskNumber("90D basis","最近有效90日期限插值",vp((a?.futures_surface?.[state.family]||[]).at(-1)?.nodes?.["90"]))+
+    '</div></article></div>';
+  const table=rows.length?'<div class="quant-table-scroll"><table class="quant-table"><thead><tr>'+
+    '<th>Instrument</th><th>Expiry</th><th>Days</th><th>Mark</th><th>Reference</th><th>Basis</th><th>Ann. basis</th>'+
+    '</tr></thead><tbody>'+rows.map(r=>'<tr><td>'+esc(r.instrument)+'</td>'+
+      '<td>'+esc(r.expiry?dateUtc(r.expiry):"PERP")+'</td><td>'+esc(finite(r.days)?money(r.days,1):"—")+'</td>'+
+      '<td>'+esc(money(r.mark,2))+'</td><td>'+esc(money(r.reference,2))+'</td>'+
+      '<td class="'+(r.basis_pct<0?"bad":"good")+'">'+esc(finite(r.basis_pct)?signed(r.basis_pct,3)+"%":"—")+'</td>'+
+      '<td class="'+(r.annualized_basis_pct<0?"bad":"good")+'">'+esc(finite(r.annualized_basis_pct)?signed(r.annualized_basis_pct,2)+"%":"—")+'</td></tr>').join("")+
+    '</tbody></table></div>':empty("该结算市场没有已上市期货合约。");
+  return sectionHead("03 / FORWARD TERM STRUCTURE","Futures Basis Surface",
+    "跨到期与跨观测时段的年化期货基差，按 USD/USDC 结算结构独立计算。",
+    state.family==="inverse"?"COIN SETTLED":"USDC LINEAR")+
+    summary+'<div class="quant-section-space"><article class="quant-panel">'+
+    panelTitle("Basis surface · Observation × Tenor","7 / 30 / 60 / 90 / 180 D")+
+    futuresMatrix(state.asset)+'</article></div>'+
+    '<div class="quant-section-space">'+sectionHead("FORWARD BOOK","合约期限与基差明细",
+      "原生合约数据参与计算，但这里只展示可比期限价值和年度化基差。")+table+'</div>';
+}
+function modelFor(row){
+  return market()?.greeks_by_instrument?.[row.instrument_name]||null;
+}
+function optionRows(){
+  const q=state.optionSearch.trim().toLowerCase();
+  const now=new Date(state.data.latest_slot).getTime();
+  const f=latestChain().filter(r=>{
+    const days=(Number(r.expiration_timestamp)-now)/86400000;
+    return (state.optionSide==="all"||r.option_type===state.optionSide) &&
+      (state.optionTenor==="all"||
+       (state.optionTenor==="7" && days<=7) ||
+       (state.optionTenor==="30" && days>7 && days<=30) ||
+       (state.optionTenor==="90" && days>30 && days<=90) ||
+       (state.optionTenor==="long" && days>90)) &&
+      (!q||String(r.instrument_name).toLowerCase().includes(q));
+  });
   const key=state.optionSort;
-  rows.sort((a,b)=>{
-    const av=key==="iv" ? a.mark_iv : key==="oi"?a.open_interest:key==="strike"?a.strike:dte(a);
-    const bv=key==="iv" ? b.mark_iv : key==="oi"?b.open_interest:key==="strike"?b.strike:dte(b);
-    const fallback= key==="oi"||key==="iv" ? -Infinity : Infinity;
-    return (key==="oi"||key==="iv" ? Number(bv??fallback)-Number(av??fallback) :
-      Number(av??fallback)-Number(bv??fallback)) || a.instrument_name.localeCompare(b.instrument_name);
+  f.sort((a,b)=>{
+    const av=key==="iv"?a.mark_iv:key==="delta"?Math.abs(modelFor(a)?.delta??-1):
+      key==="strike"?a.strike:key==="expiry"?a.expiration_timestamp:a.open_interest;
+    const bv=key==="iv"?b.mark_iv:key==="delta"?Math.abs(modelFor(b)?.delta??-1):
+      key==="strike"?b.strike:key==="expiry"?b.expiration_timestamp:b.open_interest;
+    const descending=key==="oi"||key==="iv";
+    return (Number(descending?bv:av)||0)-(Number(descending?av:bv)||0);
   });
-  return rows;
+  return f;
 }
-function matrix() {
-  const rows=optionSource().filter(row=>(state.optionSide==="all"||row.option_type===state.optionSide) &&
-    valid(row.mark_iv));
-  const parts=DTE_BUCKETS.map(([dKey,dName])=>'<tr><td>'+esc(dName)+'</td>'+OTM_BUCKETS.map(([oKey])=>{
-    const values=rows.filter(r=>bucket(dte(r),DTE_BUCKETS)===dKey && bucket(otm(r),OTM_BUCKETS)===oKey);
-    if(!values.length) return '<td><div class="market-matrix-missing">—</div></td>';
-    const avg=values.reduce((sum,r)=>sum+Number(r.mark_iv),0)/values.length;
-    const active=state.optionDte===dKey&&state.optionOtm===oKey;
-    return '<td><button class="market-matrix-btn'+(active?' active':'')+'" type="button" data-matrix-dte="'+esc(dKey)+'" data-matrix-otm="'+esc(oKey)+'" aria-pressed="'+active+'" title="'+esc(dName+' · '+oKey+'% 虚值 · '+values.length+' 个合约')+'"><b>'+pct(avg)+'</b><small>'+integer(values.length)+' contracts</small></button></td>';
-  }).join("")+'</tr>').join("");
-  return '<div class="market-matrix-scroll"><table class="market-matrix"><thead><tr><th>剩余天数 / 虚值距离</th>'+
-    OTM_BUCKETS.map(([key,label])=>'<th>'+esc(label)+'</th>').join("")+'</tr></thead><tbody>'+parts+'</tbody></table></div>';
-}
-function optionTable() {
-  const rows=filteredOptions(), pageSize=35, pages=Math.max(1,Math.ceil(rows.length/pageSize));
-  state.optionPage=Math.max(0,Math.min(state.optionPage,pages-1));
-  const shown=rows.slice(state.optionPage*pageSize,(state.optionPage+1)*pageSize);
-  const trows=shown.map(row=>{
-    const expiry=valid(row.expiration_timestamp)?new Date(Number(row.expiration_timestamp)).toISOString().slice(0,10):"—";
-    return '<tr><td><strong>'+esc(row.instrument_name)+'</strong><span class="secondary">'+esc(row.settlement_currency||"原生结算")+'</span></td>'+
-      '<td>'+esc(row.option_type||"—")+'</td><td>'+esc(expiry)+'</td><td>'+esc(valid(dte(row))?num(dte(row),1)+"D":"—")+'</td>'+
-      '<td>'+esc(num(row.strike,1))+'</td><td>'+esc(valid(otm(row))?num(otm(row),1)+"%":"—")+'</td>'+
-      '<td>'+esc(num(row.bid_price,4))+'</td><td>'+esc(num(row.ask_price,4))+'</td>'+
-      '<td class="cell-good">'+esc(pct(row.mark_iv))+'</td><td>'+esc(num(row.open_interest,2))+'</td></tr>';
+function chainTable(){
+  const list=optionRows(),pageSize=35,total=Math.max(1,Math.ceil(list.length/pageSize));
+  state.optionPage=Math.max(0,Math.min(state.optionPage,total-1));
+  const visible=list.slice(state.optionPage*pageSize,(state.optionPage+1)*pageSize);
+  const items=visible.map(r=>{
+    const g=modelFor(r)||{};
+    return '<tr><td>'+esc(r.instrument_name)+'</td><td>'+esc(r.option_type)+'</td>'+
+      '<td>'+esc(dateUtc(r.expiration_timestamp))+'</td><td>'+esc(money(r.strike,0))+'</td>'+
+      '<td>'+esc(iv(r.mark_iv))+'</td><td>'+esc(money(g.delta,3))+'</td>'+
+      '<td>'+esc(finite(g.gamma)?Number(g.gamma).toExponential(2):"—")+'</td>'+
+      '<td>'+esc(money(g.vanna,3))+'</td><td>'+esc(money(g.volga,2))+'</td>'+
+      '<td>'+esc(money(g.charm_day,5))+'</td><td>'+esc(money(r.open_interest,2))+'</td></tr>';
   }).join("");
-  return '<div class="market-section-heading"><div><h3>期权原始报价</h3><p>Bid / Ask / OI 保留原生合约单位；IV 为交易所标记隐含波动率。</p></div><span class="market-count-chip">'+integer(rows.length)+' contracts</span></div>'+
-    '<div class="market-table-wrap"><table class="market-table"><thead><tr>'+
-    '<th>合约 / 结算</th><th>方向</th><th>到期日</th><th>DTE</th><th>行权价</th><th>OTM</th><th>Bid (native)</th><th>Ask (native)</th><th>Mark IV</th><th>Open interest</th>'+
-    '</tr></thead><tbody>'+ (trows||'<tr><td colspan="10">当前筛选条件下没有已归档合约。</td></tr>') +'</tbody></table></div>'+
-    '<div class="market-pagination"><span>'+integer(rows.length?state.optionPage*pageSize+1:0)+'–'+integer(Math.min(rows.length,(state.optionPage+1)*pageSize))+' / '+integer(rows.length)+'</span>'+
-    '<div><button class="market-btn" data-page="-1" '+(state.optionPage===0?"disabled":"")+'>上一页</button>'+
-    '<button class="market-btn" data-page="1" '+(state.optionPage>=pages-1?"disabled":"")+'>下一页</button></div></div>';
+  return '<div class="quant-table-scroll"><table class="quant-table"><thead><tr>'+
+    '<th>Instrument</th><th>Side</th><th>Expiry</th><th>Strike</th><th>Mark IV</th><th>Δ*</th>'+
+    '<th>Γ*</th><th>Vanna*</th><th>Volga*</th><th>Charm/day*</th><th>OI</th></tr></thead><tbody>'+
+    (items||'<tr><td colspan="11">该筛选条件下没有已归档合约。</td></tr>')+'</tbody></table></div>'+
+    '<div class="quant-pagination"><span>显示 '+int(list.length?state.optionPage*pageSize+1:0)+'–'+
+    int(Math.min(list.length,(state.optionPage+1)*pageSize))+' / '+int(list.length)+'</span><div>'+
+    '<button type="button" data-page="-1" '+(state.optionPage===0?"disabled":"")+'>上一页</button>'+
+    '<button type="button" data-page="1" '+(state.optionPage>=total-1?"disabled":"")+'>下一页</button></div></div>';
 }
-function optionsView() {
-  if(state.asset==="PAXG")return '<div class="market-empty"><strong>当前不采集 PAXG 期权。</strong><p>Deribit 当前未提供符合采集范围的 PAXG 期权合约，因此不会构造虚假期权数据。PAXG 的期货 / 永续和指数价格仍可在其他标签查看。</p><button class="market-btn" data-go="futures">查看 PAXG 期货 →</button></div>';
-  const options=optionSource();
-  if(!options.length)return '<div class="market-empty">当前最新归档中没有 '+esc(state.asset)+' 期权快照。</div>';
-  const controls='<div class="market-filterbar"><label>方向<select class="market-select" data-filter="side">'+
-    [["all","全部"],["call","Call"],["put","Put"]].map(([key,label])=>'<option value="'+key+'" '+(state.optionSide===key?"selected":"")+'>'+label+'</option>').join("")+'</select></label>'+
-    '<label>DTE 分组<select class="market-select" data-filter="dte"><option value="all">全部期限</option>'+
-    DTE_BUCKETS.map(([key,label])=>'<option value="'+key+'" '+(state.optionDte===key?"selected":"")+'>'+esc(label)+'</option>').join("")+'</select></label>'+
-    '<label>OTM 距离<select class="market-select" data-filter="otm"><option value="all">全部</option>'+
-    OTM_BUCKETS.map(([key,label])=>'<option value="'+key+'" '+(state.optionOtm===key?"selected":"")+'>'+esc(label)+'</option>').join("")+'</select></label>'+
-    '<label>排序<select class="market-select" data-filter="sort">'+[["expiry","到期时间 ↑"],["strike","行权价 ↑"],["iv","标记 IV ↓"],["oi","持仓量 ↓"]].map(([key,label])=>
-      '<option value="'+key+'" '+(state.optionSort===key?"selected":"")+'>'+esc(label)+'</option>').join("")+'</select></label>'+
-    '<label>合约搜索<input class="market-input" data-filter="search" type="search" placeholder="如 BTC-..." value="'+esc(state.optionSearch)+'"></label>'+
-    '<button class="market-btn" data-reset-options="true">重置筛选</button></div>';
-  return controls+'<article class="market-panel">'+panelTitle(state.asset+" · OTM / DTE IV 矩阵","每格是该区间内有效 Mark IV 的算术平均，点击可筛选下方原始合约。", "MARK IV / NOT DELTA")+
-    matrix()+'<p class="market-note">纵轴为距到期天数，横轴为按标的参考价计算的虚值行权价距离；不代表期权 Delta、收益率或可成交价格。只统计 OTM 合约。</p></article>'+
-    '<div id="option-table-area">'+optionTable()+'</div>';
+function optionsView(){
+  const m=market();if(!m)return empty("当前没有已归档期权链。PAXG 不提供可用 Deribit 期权。");
+  const menus='<div class="quant-table-controls"><label>方向<select data-filter="side">'+
+    [["all","全部"],["call","Call"],["put","Put"]].map(([key,label])=>
+      '<option value="'+key+'" '+(state.optionSide===key?"selected":"")+'>'+label+'</option>').join("")+
+    '</select></label><label>剩余天数<select data-filter="tenor">'+
+    [["all","全部期限"],["7","≤7 天"],["30","8–30 天"],["90","31–90 天"],["long",">90 天"]].map(([key,label])=>
+      '<option value="'+key+'" '+(state.optionTenor===key?"selected":"")+'>'+label+'</option>').join("")+
+    '</select></label><label>排序<select data-filter="sort">'+
+    [["oi","OI ↓"],["iv","IV ↓"],["delta","|Delta| ↑"],["expiry","到期 ↑"],["strike","行权价 ↑"]].map(([key,label])=>
+      '<option value="'+key+'" '+(state.optionSort===key?"selected":"")+'>'+label+'</option>').join("")+
+    '</select></label><label>合约搜索<input data-filter="search" type="search" placeholder="BTC- / ETH-..." value="'+
+    esc(state.optionSearch)+'"></label></div>';
+  return sectionHead("04 / CONTRACT SENSITIVITIES","Option Chain & Greeks",
+    "逐合约模型敏感度用于核对曲面、期限集中度与聚合风险结果。",
+    "MODEL Δ / Γ / VANNA / VOLGA / CHARM")+
+    '<div class="quant-muted-warning">带 * 的 Greeks 均由 Black-76 从 Mark IV 推导，单位为单个标的的模型敏感度，非 Deribit 直接推送，未乘未平仓量。</div>'+
+    '<article class="quant-panel">'+menus+'<div id="quant-chain-table">'+chainTable()+'</div></article>';
 }
-function futuresView() {
-  const all=dataRows("futures_curve").filter(x=>x.base_currency===state.asset);
-  if(!all.length)return '<div class="market-empty">当前最新归档中没有 '+esc(state.asset)+' 期货或永续合约。</div>';
-  const sorted=all.slice().sort((a,b)=>(Number(a.expiration_timestamp)||0)-(Number(b.expiration_timestamp)||0));
-  const perps=sorted.filter(x=>!valid(x.expiration_timestamp)||Number(x.expiration_timestamp)<=0);
-  const dated=sorted.filter(x=>valid(x.expiration_timestamp)&&Number(x.expiration_timestamp)>0);
-  const ref=indexSeries(state.asset).name || "无指数";
-  const rows=sorted.map(row=>'<tr><td><strong>'+esc(row.instrument_name)+'</strong></td>'+
-    '<td>'+esc(valid(row.expiration_timestamp)&&Number(row.expiration_timestamp)>0?
-      new Date(Number(row.expiration_timestamp)).toISOString().slice(0,10):"永续 / Perpetual")+'</td>'+
-    '<td>'+esc(num(row.mark_price,2))+'</td><td>'+esc(num(row.bid_price,2))+'</td>'+
-    '<td>'+esc(num(row.ask_price,2))+'</td><td>'+esc(num(row.open_interest,2))+'</td>'+
-    '<td>'+esc(num(row.volume_usd,0))+'</td><td>'+esc(row.settlement_currency||"—")+'</td></tr>').join("");
-  const spots=dataRows("index_price").filter(x=>x.base_currency===state.asset);
-  return '<div class="market-grid"><article class="market-panel">'+panelTitle("期货 / 永续结构","仅展示交易所原生合约标记价格，不跨结算单位合成基差。","FUTURES CURVE")+
-    '<div class="market-indices"><div class="market-index-row"><span>在列合约</span><strong>'+integer(all.length)+'</strong><small>contracts</small></div>'+
-    '<div class="market-index-row"><span>有到期日的合约</span><strong>'+integer(dated.length)+'</strong><small>listed</small></div>'+
-    '<div class="market-index-row"><span>永续合约</span><strong>'+integer(perps.length)+'</strong><small>perpetual</small></div></div></article>'+
-    '<article class="market-panel">'+panelTitle("标的参考指数","指数与期货报价分别保留原生单位。","INDEX SOURCE")+
-    (spots.length?'<div class="market-indices">'+spots.map(x=>'<div class="market-index-row"><span>'+esc(x.index_name)+'</span><strong>'+esc(num(x.index_price,2))+'</strong><small>'+esc(x.quote_currency)+'</small></div>').join("")+'</div>':'<div class="market-empty">暂无参考指数。</div>')+
-    '<p class="market-note">期货到期与永续产品展示在同一明细中，结算货币见每行。合约不一定与 '+esc(ref)+' 同单位。</p></article></div>'+
-    '<div class="market-section-heading"><div><h3>'+esc(state.asset)+' · 合约期限表</h3><p>期货 Mark、Bid、Ask、OI、交易量皆来自最新 UTC 时段 Parquet。</p></div><span class="market-count-chip">'+integer(sorted.length)+' listed</span></div>'+
-    '<div class="market-table-wrap"><table class="market-table"><thead><tr><th>合约</th><th>到期</th><th>Mark</th><th>Bid</th><th>Ask</th><th>Open interest</th><th>Volume USD</th><th>结算</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
-}
-function archiveView() {
-  const d=state.data, slots=(d.slots||[]).slice().reverse();
-  return '<div class="market-archive-head"><article class="market-panel">'+panelTitle("归档验证链","每个 UTC 批次都保留 Receipt、Manifest 与 Parquet 数据文件。","APPEND ONLY")+
-    '<p class="market-note">该页面的数据来自已完成的 Git 归档，不依赖实时行情接口。生成器核对 Manifest 中的每个文件及其 Git blob SHA，读取 Parquet 时验证数据集和 UTC Slot 一致性。</p></article>'+
-    '<article class="market-panel">'+panelTitle("最新已确认时段", "列出最近最多 24 个已经持久化的时段，不把缺失小时补成 0。","UTC SLOT")+
-    '<div class="market-stat-value">'+esc(hhmm(latestSlot()))+' UTC</div><p class="market-note">'+esc(localTime(latestSlot()))+' UTC+8 · 共 '+integer(slots.length)+' 个回执被纳入当前视图。</p></article></div>'+
-    '<div class="market-section-heading"><div><h3>逐小时不可变记录</h3><p>Manifest 列出具体文件及 Git SHA；Receipt 记录该 UTC 时段的必需数据集。</p></div></div>'+
-    '<div class="market-table-wrap"><table class="market-table"><thead><tr><th>UTC 时段</th><th>本地 (UTC+8)</th><th>文件数</th><th>Parquet 体积</th><th>校验</th><th>原始记录</th></tr></thead><tbody>'+
-    slots.map(s=>'<tr><td><strong>'+esc(s.slot.slice(0,16))+'Z</strong></td><td>'+esc(localTime(s.slot))+'</td>'+
-      '<td>'+integer(s.artifact_count)+'</td><td>'+esc(kb(s.parquet_bytes))+'</td>'+
-      '<td><span class="market-archive-badge">Manifest verified</span></td><td>'+
-      '<a class="market-archive-link" href="'+esc(nativeLink(s.manifest_path))+'" target="_blank" rel="noopener noreferrer">Manifest ↗</a> &nbsp; '+
-      '<a class="market-archive-link" href="'+esc(nativeLink(s.receipt_path))+'" target="_blank" rel="noopener noreferrer">Receipt ↗</a></td></tr>').join("")+
-    '</tbody></table></div><p class="market-note">页面最多列出最近 24 个已有回执的时段；此前归档仍保留在 market-data 分支。缺失时段不代表由该视图自动补采成功。</p>';
-}
-function renderView() {
+function render(){
   if(!state.data)return;
-  $("market-assets").querySelectorAll("[data-asset]").forEach(btn=>{
-    const active=btn.dataset.asset===state.asset;btn.classList.toggle("active",active);
-    btn.setAttribute("aria-pressed",String(active));
-  });
-  $("market-tabs").querySelectorAll("[data-tab]").forEach(btn=>{
-    const active=btn.dataset.tab===state.tab;btn.classList.toggle("active",active);
-    btn.setAttribute("aria-selected",String(active));
-  });
-  $("market-body").innerHTML = state.tab==="overview" ? renderOverview() :
-    state.tab==="options" ? optionsView() :
-    state.tab==="futures" ? futuresView() : archiveView();
+  chooseProduct();syncControls();
+  const html=state.tab==="surface"?surfaceView():state.tab==="risk"?riskView():
+    state.tab==="futures"?futuresView():optionsView();
+  $("quant-content").innerHTML=html;
 }
-async function boot() {
-  try {
-    const resp=await fetch("./data/deribit-dashboard.json?version="+Date.now(),{cache:"no-store"});
-    if(!resp.ok)throw new Error("HTTP "+resp.status+"：页面数据尚未生成或发布。");
-    const d=await resp.json();
-    if(d.version!==1||!Array.isArray(d.slots)||!d.latest||!Array.isArray(d.history))throw new Error("数据格式不匹配");
-    state.data=d;renderSummary();renderView();
-  }catch(e){
-    state.error=e;
-    $("market-health").className="market-health stale";
-    $("market-health").innerHTML='<span class="market-health-dot"></span> 数据暂不可用';
-    $("market-body").innerHTML='<div class="market-error"><strong>Deribit 归档视图暂时无法读取。</strong><p>'+
-      esc(e.message||"请求失败")+'</p><p>可在 GitHub market-data 分支检查原始 Parquet、Manifest 和 Receipt。页面不会用模拟数据代替真实采集。</p>'+
-      '<a class="market-archive-link" href="https://github.com/BestNathan/nasset/tree/market-data/deribit" target="_blank" rel="noopener noreferrer">检查原始归档 ↗</a></div>';
-    $("market-summary").innerHTML="";
+function bindEvents(){
+  document.body.addEventListener("click",ev=>{
+    const asset=ev.target.closest("[data-asset]");
+    if(asset){state.asset=asset.dataset.asset;state.selectedExpiry=null;state.optionPage=0;
+      if(state.asset==="PAXG")state.tab="futures";
+      else if(state.tab==="futures")state.tab="surface";
+      render();return;}
+    const fam=ev.target.closest("[data-family]");
+    if(fam&&!fam.disabled){state.family=fam.dataset.family;state.selectedExpiry=null;state.optionPage=0;render();return;}
+    const tab=ev.target.closest("[data-tab]");
+    if(tab){state.tab=tab.dataset.tab;render();return;}
+    const expiry=ev.target.closest("[data-surface-expiry]");
+    if(expiry){state.selectedExpiry=expiry.dataset.surfaceExpiry;render();return;}
+    const page=ev.target.closest("[data-page]");
+    if(page&&!page.disabled){state.optionPage+=Number(page.dataset.page);
+      const node=$("quant-chain-table");if(node)node.innerHTML=chainTable();}
+  });
+  $("quant-content").addEventListener("change",ev=>{
+    const filter=ev.target.dataset.filter;if(!filter||filter==="search")return;
+    if(filter==="side")state.optionSide=ev.target.value;
+    if(filter==="tenor")state.optionTenor=ev.target.value;
+    if(filter==="sort")state.optionSort=ev.target.value;
+    state.optionPage=0;render();
+  });
+  $("quant-content").addEventListener("input",ev=>{
+    if(ev.target.dataset.filter!=="search")return;
+    state.optionSearch=ev.target.value;state.optionPage=0;
+    const node=$("quant-chain-table");if(node)node.innerHTML=chainTable();
+  });
+}
+async function boot(){
+  try{
+    const res=await fetch("./data/deribit-dashboard.json?t="+Date.now(),{cache:"no-store"});
+    if(!res.ok)throw new Error("DATA "+res.status);
+    const data=await res.json();
+    if(data.version!==1||data.analytics?.version!==1||!data.analytics.assets)throw new Error("分析模型尚未发布");
+    state.data=data;
+    if(!data.analytics.assets?.BTC)throw new Error("缺少 BTC 研究数据");
+    render();
+  }catch(err){
+    $("quant-kpis").innerHTML="";
+    $("quant-asof").innerHTML='<span>STATUS</span><strong>暂无有效分析快照</strong>';
+    $("quant-content").innerHTML='<div class="quant-error"><strong>衍生品研究数据暂时不可用。</strong>'+
+      '<p>'+esc(err.message||"数据读取失败")+'</p><p>数据模型必须来自完整的已验证归档，不会展示模拟敏感度或虚构曲面。</p></div>';
   }
-}
-function bindEvents() {
-  $("market-assets").addEventListener("click",e=>{
-    const b=e.target.closest("[data-asset]");if(!b)return;
-    state.asset=b.dataset.asset;state.optionPage=0;state.optionDte="all";state.optionOtm="all";renderView();
-  });
-  $("market-tabs").addEventListener("click",e=>{
-    const b=e.target.closest("[data-tab]");if(!b)return;
-    state.tab=b.dataset.tab;renderView();
-  });
-  $("market-body").addEventListener("click",e=>{
-    const page=e.target.closest("[data-page]");
-    if(page&&!page.disabled){state.optionPage+=Number(page.dataset.page);$("option-table-area").innerHTML=optionTable();return;}
-    const grid=e.target.closest("[data-matrix-dte]");
-    if(grid){
-      const same=state.optionDte===grid.dataset.matrixDte&&state.optionOtm===grid.dataset.matrixOtm;
-      state.optionDte=same?"all":grid.dataset.matrixDte;state.optionOtm=same?"all":grid.dataset.matrixOtm;
-      state.optionPage=0;renderView();return;
-    }
-    const reset=e.target.closest("[data-reset-options]");
-    if(reset){Object.assign(state,{optionSide:"all",optionDte:"all",optionOtm:"all",optionSort:"expiry",optionSearch:"",optionPage:0});renderView();return;}
-    const go=e.target.closest("[data-go]");
-    if(go){state.tab=go.dataset.go;renderView();}
-  });
-  $("market-body").addEventListener("change",e=>{
-    const target=e.target,filter=target.dataset.filter;
-    if(!filter||filter==="search")return;
-    if(filter==="side")state.optionSide=target.value;
-    if(filter==="dte")state.optionDte=target.value;
-    if(filter==="otm")state.optionOtm=target.value;
-    if(filter==="sort")state.optionSort=target.value;
-    state.optionPage=0;renderView();
-  });
-  $("market-body").addEventListener("input",e=>{
-    if(e.target.dataset.filter!=="search")return;
-    state.optionSearch=e.target.value;state.optionPage=0;
-    const region=$("option-table-area");if(region)region.innerHTML=optionTable();
-  });
 }
 bindEvents();
 boot();
