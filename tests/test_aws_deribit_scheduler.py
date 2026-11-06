@@ -99,3 +99,23 @@ def test_destroy_requires_explicit_confirmation():
 def test_managed_existing_resources_require_tag():
     with pytest.raises(RuntimeError, match="not managed"):
         S["ensure_managed_tags"]([])
+
+
+def test_scheduler_region_defaults_to_apac_project_and_reads_actions_env(monkeypatch):
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+    assert S["parse_args"](["plan"]).region == "ap-southeast-2"
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "eu-north-1")
+    assert S["parse_args"](["plan"]).region == "eu-north-1"
+    assert S["parse_args"](["plan", "--region", "us-east-2"]).region == "us-east-2"
+
+
+def test_example_iam_policy_uses_apac_project_region_not_old_singapore():
+    import json
+    policy_path = Path(__file__).resolve().parents[1] / "aws/deployer-iam-policy.example.json"
+    policy = json.loads(policy_path.read_text())
+    arns = []
+    for statement in policy["Statement"]:
+        resources = statement["Resource"]
+        arns += resources if isinstance(resources, list) else [resources]
+    assert any(":ap-southeast-2:" in arn for arn in arns)
+    assert not any(":ap-southeast-1:" in arn for arn in arns)
