@@ -553,3 +553,42 @@ def test_manifest_zero_optional_artifacts_is_valid_noop():
     assert publisher(session).completed_slot(SLOT_RECEIPT) is True
     assert not publisher(session).publish(PARTS, slot_receipt=SLOT_RECEIPT).created
     assert all(method == "GET" for method, _, _ in session.calls)
+
+
+
+def test_large_slot_manifest_uses_one_atomic_commit():
+    """An initial multi-thousand-event backfill never commits per event."""
+    markers = {
+        f"deribit/event_keys/historical_volatility/BTC/2023/11/14/{1700000000000 + i}.key":
+        EVENT_BLOB for i in range(2 * 250 + 1)
+    }
+    session = FakeSession()
+    result = publisher(session).publish({**PARTS, **markers}, slot_receipt=SLOT_RECEIPT)
+    trees = [body for method, path, body in session.calls
+             if method == "POST" and path == "/git/trees"]
+    manifest_entries = [entry for tree in trees for entry in tree["tree"]
+                        if entry["path"].endswith(".manifest.json")]
+    assert result.created
+    assert len(trees) >= 3
+    assert len(manifest_entries) == 1
+    manifest = json.loads(manifest_entries[0]["content"].split("\\n", 1)[1])
+    assert len(manifest["artifacts"]) == len(markers) + len(PARTS) + 1
+    assert sum(method == "POST" and path == "/git/commits"
+               for method, path, _ in session.calls) == 1
+    assert sum(method == "POST" and path == "/git/refs"
+               for method, path, _ in session.calls) == 1
+
+
+def test_large_manifest_preflight_uses_bounded_historical_year_tree():
+    markers = {
+        f"deribit/event_keys/historical_volatility/BTC/2023/11/14/{1700000000000 + i}.key":
+        EVENT_BLOB for i in range(650)
+    }
+    session = published_slot_session(raw={**PARTS, **markers})
+    assert publisher(session).completed_slot(SLOT_RECEIPT)
+    tree_reads = [path for method, path, _ in session.calls
+                  if method == "GET" and path.startswith("/git/trees/")]
+    assert len([path for path in tree_reads if "?recursive=1" in path]) == 1
+    assert not any(path.startswith("/git/trees/tree0?recursive") for path in tree_reads)
+    assert len(tree_reads) < 25
+    assert all(method == "GET" for method, _, _ in session.calls)
