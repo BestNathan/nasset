@@ -571,7 +571,7 @@ def test_large_slot_manifest_uses_one_atomic_commit():
     assert result.created
     assert len(trees) >= 3
     assert len(manifest_entries) == 1
-    manifest = json.loads(manifest_entries[0]["content"].split("\\n", 1)[1])
+    manifest = json.loads(manifest_entries[0]["content"].split("\n", 1)[1])
     assert len(manifest["artifacts"]) == len(markers) + len(PARTS) + 1
     assert sum(method == "POST" and path == "/git/commits"
                for method, path, _ in session.calls) == 1
