@@ -52,7 +52,7 @@
         "lambda:PutFunctionEventInvokeConfig",
         "lambda:DeleteFunction"
       ],
-      "Resource": "arn:aws:lambda:ap-southeast-1:REPLACE_WITH_12_DIGIT_ACCOUNT_ID:function:nasset-deribit-github-dispatcher"
+      "Resource": "arn:aws:lambda:ap-southeast-2:REPLACE_WITH_12_DIGIT_ACCOUNT_ID:function:nasset-deribit-github-dispatcher"
     },
     {
       "Sid": "ManageNassetHourlySchedule",
@@ -63,7 +63,7 @@
         "scheduler:UpdateSchedule",
         "scheduler:DeleteSchedule"
       ],
-      "Resource": "arn:aws:scheduler:ap-southeast-1:REPLACE_WITH_12_DIGIT_ACCOUNT_ID:schedule/default/nasset-deribit-hourly"
+      "Resource": "arn:aws:scheduler:ap-southeast-2:REPLACE_WITH_12_DIGIT_ACCOUNT_ID:schedule/default/nasset-deribit-hourly"
     },
     {
       "Sid": "ManageNassetGitHubSSMSecureString",
@@ -72,7 +72,7 @@
         "ssm:GetParameter",
         "ssm:PutParameter"
       ],
-      "Resource": "arn:aws:ssm:ap-southeast-1:REPLACE_WITH_12_DIGIT_ACCOUNT_ID:parameter/nasset/deribit/github-token"
+      "Resource": "arn:aws:ssm:ap-southeast-2:REPLACE_WITH_12_DIGIT_ACCOUNT_ID:parameter/nasset/deribit/github-token"
     },
     {
       "Sid": "ManageNassetDispatcherCloudWatchLogs",
@@ -82,8 +82,8 @@
         "logs:PutRetentionPolicy"
       ],
       "Resource": [
-        "arn:aws:logs:ap-southeast-1:REPLACE_WITH_12_DIGIT_ACCOUNT_ID:log-group:/aws/lambda/nasset-deribit-github-dispatcher",
-        "arn:aws:logs:ap-southeast-1:REPLACE_WITH_12_DIGIT_ACCOUNT_ID:log-group:/aws/lambda/nasset-deribit-github-dispatcher:*"
+        "arn:aws:logs:ap-southeast-2:REPLACE_WITH_12_DIGIT_ACCOUNT_ID:log-group:/aws/lambda/nasset-deribit-github-dispatcher",
+        "arn:aws:logs:ap-southeast-2:REPLACE_WITH_12_DIGIT_ACCOUNT_ID:log-group:/aws/lambda/nasset-deribit-github-dispatcher:*"
       ]
     }
   ]

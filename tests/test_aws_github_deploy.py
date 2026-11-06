@@ -184,7 +184,7 @@ def test_deployment_workflow_only_runs_on_main_without_pr_or_schedule():
     assert "github.repository == 'BestNathan/nasset'" in job["if"]
     assert "github.ref == 'refs/heads/main'" in job["if"]
     assert job["permissions"] == {"contents": "read"}
-    assert job["env"]["AWS_DEFAULT_REGION"] == "ap-southeast-1"
+    assert job["env"]["AWS_DEFAULT_REGION"] == "${{ vars.NASSET_AWS_REGION || 'ap-southeast-2' }}"
     assert "AWS_ACCESS_KEY_ID" not in job["env"]
     assert "AWS_SECRET_ACCESS_KEY" not in job["env"]
     steps = job["steps"]
@@ -193,7 +193,7 @@ def test_deployment_workflow_only_runs_on_main_without_pr_or_schedule():
     assert aws["if"] == "${{ steps.gate.outputs.need_aws == 'true' }}"
     assert aws["with"]["aws-access-key-id"] == "${{ secrets.NASSET_AWS_ACCESS_KEY_ID }}"
     assert aws["with"]["aws-secret-access-key"] == "${{ secrets.NASSET_AWS_SECRET_ACCESS_KEY }}"
-    assert aws["with"]["aws-region"] == "ap-southeast-1"
+    assert aws["with"]["aws-region"] == "${{ vars.NASSET_AWS_REGION || 'ap-southeast-2' }}"
     assert aws["with"]["unset-current-credentials"] == "true"
     assert aws["with"]["mask-aws-account-id"] == "true"
     gate = next(step for step in steps if step.get("id") == "gate")
