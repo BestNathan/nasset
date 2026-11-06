@@ -427,3 +427,43 @@ squash, force update, or production history rewrite.
 ### GitHub `schedule` registration diagnosis — 2026-11-06
 
 The 03:37, 04:37 and 05:37 UTC scheduled ticks did **not** produce a workflow run, despite the default-branch workflow existing, cron being syntactically valid, activation enabled, and successful `push` and manual (`workflow_dispatch`) runs. The manual run at 05:06 UTC (run 42166461117) was a read-only dry-run and **did not** publish the 05:00 slot. GitHub's documented scheduler may delay/drop events, and modifying cron is a documented way to reactivate a deactivated schedule; the workflow's internal active/disabled state was not obtainable through the available connector, so the exact provider-side cause remains unproven. To explicitly refresh registration without changing collector semantics, the schedule changed from minute 37 to minute 43 (one run per hour). Verify an actual `event=schedule` run, its successful publication and the next immutable hour-slot commit before marking periodic execution healthy; a successful `push`/manual run is not equivalent. The gap in captured hourly snapshots is real and cannot be reconstructed exactly from a later live quote. If the registration refresh does not produce a new `schedule` event, inspect the workflow enable/disable state in GitHub Actions and escalate a scheduler-delivery incident with the affected UTC timestamps. This change does not alter the production activation gate, Git API concurrency behavior, or the existing Daily/Pages workflows.
+
+
+### External AWS EventBridge Scheduler + Lambda (provisioned separately)
+
+The repository now includes `scripts/aws_deribit_scheduler.py` (plan/apply/status/enable/disable/destroy)
+and `aws/deribit_dispatcher.py`. AWS deployments are **not** created merely by
+merging these files. Infrastructure is initially created with the schedule **DISABLED**,
+so the operator can inspect IAM and configure the separate GitHub Token before opting in.
+No AWS credentials, GitHub PAT, decrypted SSM values or Lambda secret values are committed.
+
+- Default AWS Region: `ap-southeast-1` (Singapore); default schedule:
+  `cron(12 * * * ? *)`, UTC, with a non-flexible delivery window, and Lambda
+  target invocation retries bounded to 10 minutes. Region and minute are
+  configurable; no registration is needed at GitHub beyond the workflow file.
+- EventBridge substitutes `<aws.scheduler.scheduled-time>` in the Lambda input.
+  The Lambda validates the scheduled UTC minute and a maximum 20-minute delay;
+  on success it sends GitHub `workflow_dispatch` with `publish=true` and the
+  **intended exact UTC-hour `slot`**. It does not derive the slot from a retry
+  after the hour rolls over. The GitHub read-only job compares the requested
+  slot against the runner's current UTC hour, and the publication job checks
+  again before writing; delayed workflows fail closed rather than mislabeling
+  a later live quote as a historical snapshot.
+- Scheduler assumes a dedicated IAM role scoped to the `schedule-group/default`
+  SourceArn and invokes only the named Lambda. Lambda assumes a different
+  role restricted to one SSM Standard SecureString parameter and its own
+  CloudWatch Log Group. The GitHub PAT is read through SSM only inside Lambda;
+  the PAT requires GitHub **Actions: write** permission restricted to `BestNathan/nasset`.
+- `apply` is idempotent on tagged nasset-managed resources and preserves an
+  existing schedule's enabled/disabled state. `disable` stops future scheduled
+  dispatches; `destroy --confirm-destroy` requires disabling first and keeps
+  the SSM token and CloudWatch log history. Initial `apply` does not enable.
+  Use an AWS CLI profile or short-lived assumed role, never copy AK/SK into
+  the Git repo or chat. See [AWS scheduler operations](aws/README.md).
+
+**Operational limitation:** GitHub accepting a `workflow_dispatch` event is
+not an end-to-end archival receipt. Monitor GitHub workflow results and exact
+`deribit/slots/YYYY/MM/DD/HH00.receipt` paths on `market-data`; continue
+monitoring the old native GitHub cron (it can serve as a fallback with the
+existing immutable dedupe). No backfill of missing historical option quotes
+should be fabricated.

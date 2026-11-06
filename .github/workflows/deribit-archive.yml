@@ -17,6 +17,11 @@ on:
         type: boolean
         required: true
         default: false
+      slot:
+        description: "Optional exact current UTC hour YYYY-MM-DDTHH:00:00Z (AWS scheduler)"
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -52,7 +57,17 @@ jobs:
       - name: Pin UTC slot across acceptance and publication
         id: slot
         if: "${{ steps.activation.outputs.enabled == 'true' || github.event_name == 'workflow_dispatch' }}"
-        run: echo "slot=$(date -u +'%Y-%m-%dT%H:00:00Z')" >> "$GITHUB_OUTPUT"
+        env:
+          REQUESTED_SLOT: ${{ inputs.slot }}
+        run: |
+          current_slot=$(date -u +'%Y-%m-%dT%H:00:00Z')
+          # A delayed AWS scheduled invocation must not relabel current live
+          # quotes as an earlier hour. Blank input preserves manual/native cron.
+          if [ -n "$REQUESTED_SLOT" ] && [ "$REQUESTED_SLOT" != "$current_slot" ]; then
+            echo "Refusing stale UTC slot: requested=$REQUESTED_SLOT current=$current_slot" >&2
+            exit 1
+          fi
+          echo "slot=$current_slot" >> "$GITHUB_OUTPUT"
 
       - name: Install archive dependencies
         if: "${{ steps.activation.outputs.enabled == 'true' || github.event_name == 'workflow_dispatch' }}"
@@ -92,6 +107,15 @@ jobs:
 
       - name: Install archive dependencies
         run: pip install -e ".[archive]"
+
+      - name: Reject UTC rollover between acceptance and publication
+        env:
+          PINNED_SLOT: ${{ needs.read-only-acceptance.outputs.slot }}
+        run: |
+          if [ "$PINNED_SLOT" != "$(date -u +'%Y-%m-%dT%H:00:00Z')" ]; then
+            echo "UTC slot expired before publication; refusing mislabeled quote" >&2
+            exit 1
+          fi
 
       - name: Publish complete due UTC-hour batch to orphan branch
         env:
