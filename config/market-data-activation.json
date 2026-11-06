@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "branch": "market-data",
   "enabled": true,
-  "branch": "market-data"
+  "version": 1
 }
