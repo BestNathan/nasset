@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Manage one AWS EventBridge Scheduler -> Lambda -> GitHub workflow dispatcher.
 
-Local AWS profile/role supplies deployment credentials. No long-lived AWS keys
-or GitHub tokens are accepted as CLI arguments or stored in the repository.
+AWS environment credentials or a local profile supply provisioning access.
+The GitHub PAT may be securely copied from an environment-injected GitHub
+Actions Secret to SSM SecureString; never pass credentials as CLI arguments.
 No AWS infrastructure is deployed on import or during 'plan'.
 """
 from __future__ import annotations
@@ -12,6 +13,7 @@ import base64
 import hashlib
 import io
 import json
+import os
 import re
 import sys
 import time
@@ -132,6 +134,36 @@ def ensure_secret(ssm, name: str) -> None:
         raise RuntimeError("GitHub token parameter must be a SecureString")
     if parameter.get("Tier") not in (None, "Standard"):
         raise RuntimeError("use a Standard SSM parameter to avoid advanced-tier charges")
+
+
+
+def sync_token_from_secret(ssm, name: str, token: str) -> dict:
+    """Provision/rotate the GitHub PAT from a protected Actions secret.
+
+    Does not emit token bytes in argv, subprocesses, logs, or return values.
+    Uses default aws/ssm KMS encryption and forces the Standard parameter tier.
+    Rejects taking over a pre-existing non-SecureString or advanced parameter.
+    """
+    if not re.fullmatch(r"/[A-Za-z0-9_.\\-/]+", name):
+        raise ValueError("invalid SSM parameter name")
+    if not isinstance(token, str) or not token or token != token.strip():
+        raise ValueError("NASSET_GITHUB_DISPATCH_TOKEN missing or contains whitespace")
+    if any(ch.isspace() for ch in token) or len(token.encode("utf-8")) > 4096:
+        raise ValueError("invalid GitHub dispatch token format or length")
+    try:
+        existing = ssm.get_parameter(Name=name, WithDecryption=False)["Parameter"]
+    except ssm.exceptions.ParameterNotFound:
+        existing = None
+    if existing is not None:
+        if existing.get("Type") != "SecureString" or existing.get("Tier") not in (None, "Standard"):
+            raise RuntimeError("refusing to replace a non-standard SecureString parameter")
+    ssm.put_parameter(
+        Name=name, Value=token, Type="SecureString", Tier="Standard",
+        Description="nasset GitHub workflow_dispatch PAT; managed from GitHub Secrets",
+        Overwrite=existing is not None,
+    )
+    return {"ssm_parameter": name, "type": "SecureString",
+            "tier": "Standard", "updated": existing is not None}
 
 
 def create_or_update_lambda(client, config: dict, role_arn: str,
@@ -313,7 +345,7 @@ def destroy(args, session, account: str, partition: str) -> dict:
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["plan", "apply", "status", "enable", "disable", "destroy"])
+    parser.add_argument("command", choices=["plan", "sync-token", "apply", "status", "enable", "disable", "destroy"])
     parser.add_argument("--profile", help="AWS CLI profile; avoid pasting AK/SK into chat or code")
     parser.add_argument("--region", default="ap-southeast-1")
     parser.add_argument("--prefix", default="nasset-deribit")
@@ -347,7 +379,12 @@ def main(argv=None):
         session = boto3.Session(**kw)
         identity = session.client("sts").get_caller_identity()
         account, partition = identity["Account"], identity["Arn"].split(":")[1]
-        if args.command == "apply":
+        if args.command == "sync-token":
+            result = sync_token_from_secret(
+                session.client("ssm"), args.token_parameter,
+                os.getenv("NASSET_GITHUB_DISPATCH_TOKEN", ""),
+            )
+        elif args.command == "apply":
             result = apply(args, session, account, partition)
         elif args.command in ("enable", "disable", "status"):
             result = schedule_state(args, session, account, partition, {
