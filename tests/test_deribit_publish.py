@@ -598,3 +598,82 @@ def test_large_manifest_preflight_uses_bounded_historical_year_tree():
                       if method == "GET" and p.startswith("/git/trees/")]
     assert len(tree_reads) == len(baseline_reads)
     assert all(method == "GET" for method, _, _ in session.calls)
+
+
+def test_git_tree_transient_504_retries_only_get_and_completes_preflight(monkeypatch):
+    session = published_slot_session()
+    original = session.request
+    failed = []
+    delays = []
+
+    def transient(method, url, json=None, timeout=None):
+        if method == "GET" and "/git/trees/" in url and not failed:
+            failed.append(url)
+            session.calls.append((method, url.split("/repos/example/archive")[1], json))
+            return Response(504)
+        return original(method, url, json=json, timeout=timeout)
+
+    session.request = transient
+    monkeypatch.setattr("nasset.deribit_publish.time.sleep", delays.append)
+    assert publisher(session).completed_slot(SLOT_RECEIPT) is True
+    assert len(failed) == 1
+    assert delays == [0.5]
+    assert all(method == "GET" for method, _, _ in session.calls)
+
+
+def test_persistent_read_504_fails_closed_after_bounded_retries(monkeypatch):
+    session = FakeSession(existing=True)
+    delays = []
+
+    def unavailable(method, url, json=None, timeout=None):
+        path = url.split("/repos/example/archive")[1]
+        session.calls.append((method, path, json))
+        return Response(504)
+
+    session.request = unavailable
+    monkeypatch.setattr("nasset.deribit_publish.time.sleep", delays.append)
+    with pytest.raises(RuntimeError, match="HTTP 504"):
+        publisher(session).completed_slot(SLOT_RECEIPT)
+    assert len(session.calls) == 5
+    assert len(delays) == 4
+    assert all(method == "GET" for method, _, _ in session.calls)
+
+
+def test_git_get_network_timeout_retries_and_does_not_publish(monkeypatch):
+    import requests
+
+    session = published_slot_session()
+    original = session.request
+    attempts = []
+    delays = []
+
+    def flaky(method, url, json=None, timeout=None):
+        if method == "GET" and not attempts:
+            attempts.append(1)
+            raise requests.Timeout("transient GitHub read timeout")
+        return original(method, url, json=json, timeout=timeout)
+
+    session.request = flaky
+    monkeypatch.setattr("nasset.deribit_publish.time.sleep", delays.append)
+    assert publisher(session).completed_slot(SLOT_RECEIPT)
+    assert attempts == [1] and delays == [0.5]
+    assert all(method == "GET" for method, _, _ in session.calls)
+
+
+def test_git_write_503_is_never_replayed(monkeypatch):
+    session = FakeSession()
+    delays = []
+
+    def fail_write(method, url, json=None, timeout=None):
+        if method == "POST" and url.endswith("/git/blobs"):
+            session.calls.append((method, "/git/blobs", json))
+            return Response(503)
+        return FakeSession.request(session, method, url, json=json, timeout=timeout)
+
+    session.request = fail_write
+    monkeypatch.setattr("nasset.deribit_publish.time.sleep", delays.append)
+    with pytest.raises(RuntimeError, match="HTTP 503"):
+        publisher(session).publish(PARTS)
+    assert len([1 for method, path, _ in session.calls if method == "POST" and path == "/git/blobs"]) == 1
+    assert not any(path in {"/git/refs", "/git/commits"} for _, path, _ in session.calls)
+    assert delays == []
