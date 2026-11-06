@@ -37,7 +37,7 @@ def validate_cloud_policy(value: object) -> dict:
     if type(value["revision"]) is not int or value["revision"] < 0:
         raise ValueError("invalid AWS scheduler deployment policy revision")
     if value["state"] != "not_deployed" and value["revision"] == 0:
-        raise ValueError("active deployment requires an explicit revision")
+        raise ValueError("invalid AWS scheduler deployment policy: active state requires positive revision")
     return value
 
 
@@ -166,7 +166,7 @@ def sync_token_from_secret(ssm, name: str, token: str) -> dict:
     Uses default aws/ssm KMS encryption and forces the Standard parameter tier.
     Rejects taking over a pre-existing non-SecureString or advanced parameter.
     """
-    if not re.fullmatch(r"/[A-Za-z0-9_.\\-/]+", name):
+    if not re.fullmatch(r"/[A-Za-z0-9_./-]+", name):
         raise ValueError("invalid SSM parameter name")
     if not isinstance(token, str) or not token or token != token.strip():
         raise ValueError("NASSET_GITHUB_DISPATCH_TOKEN missing or contains whitespace")
