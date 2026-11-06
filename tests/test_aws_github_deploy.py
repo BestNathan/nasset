@@ -13,10 +13,12 @@ POLICY = ROOT / "config/aws-deribit-scheduler.json"
 WORKFLOW = ROOT / ".github/workflows/aws-deribit-deploy.yml"
 
 
-def test_default_policy_cannot_call_aws_or_enable_scheduler(capsys, monkeypatch):
-    policy = S["load_cloud_policy"]()
-    assert policy == {"version": 1, "state": "not_deployed", "revision": 0}
-    # boto3 and credentials are not loaded in this state; a merge is safe.
+def test_not_deployed_policy_cannot_call_aws_or_enable_scheduler(capsys, monkeypatch):
+    # Test the no-op contract independently of the actual desired deployment
+    # state: this test must remain green after activation in production.
+    policy = {"version": 1, "state": "not_deployed", "revision": 0}
+    assert S["validate_cloud_policy"](policy) == policy
+    monkeypatch.setitem(S["main"].__globals__, "load_cloud_policy", lambda: policy)
     result = S["main"](["reconcile"])
     assert result == {"status": "skipped", "reason": "AWS deployment not requested"}
     assert "token" not in capsys.readouterr().out.lower()
