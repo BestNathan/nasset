@@ -391,7 +391,7 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=["plan", "reconcile", "sync-token", "apply", "status", "enable", "disable", "destroy"])
     parser.add_argument("--profile", help="AWS CLI profile; avoid pasting AK/SK into chat or code")
-    parser.add_argument("--region", default="ap-southeast-1")
+    parser.add_argument("--region", default=os.environ.get("AWS_DEFAULT_REGION", "ap-southeast-2"))
     parser.add_argument("--prefix", default="nasset-deribit")
     parser.add_argument("--minute", type=int, default=12)
     parser.add_argument("--token-parameter", default="/nasset/deribit/github-token")

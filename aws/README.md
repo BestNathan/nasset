@@ -50,7 +50,8 @@ as a narrowly scoped inline IAM policy:
 2. Open **Permissions → Add permissions → Create inline policy → JSON**.
 3. Copy the example JSON into the editor and replace every
    `REPLACE_WITH_12_DIGIT_ACCOUNT_ID` with your AWS **12-digit account ID**
-   (visible under the account menu in the AWS console).
+   (visible under the account menu in the AWS console). Check that all
+   region-specific ARNs match the Region of your Project in AWS Settings.
 4. Review the resources and actions and save, e.g. as
    `nasset-deribit-deployer`. No AWS root key is needed.
 5. From GitHub Actions, rerun the failed
@@ -60,12 +61,39 @@ as a narrowly scoped inline IAM policy:
 
 The example scopes writes to the exact nasset runtime roles, dispatcher
 Lambda, hourly schedule, SecureString parameter, and CloudWatch log group
-in `ap-southeast-1`. `iam:PassRole` is restricted to the Lambda and
+in `ap-southeast-2` (or your selected Project region). `iam:PassRole` is restricted to the Lambda and
 Scheduler service principals. No IAM user or credential-creation powers
 are included. This is a repository-maintained policy example rather than
 an automatic IAM privilege escalation.
 
-The AWS region is fixed to **ap-southeast-1 (Singapore)**. The official
+**AWS Region matters.** The original deployment pinned
+`ap-southeast-1` (Singapore), but the AWS project-based signup restricts
+regions through AWS-managed service control policies. Asia-Pacific
+Project accounts commonly use `ap-southeast-2` (Sydney). This is the
+new default, NOT a claim about your project's actual assigned region.
+
+Confirm your assigned Region at [AWS Settings](https://settings.aws.com)
+→ **Project → Overview → Additional Info → Region**. If it is not
+`ap-southeast-2`, create the GitHub Actions **Variable**
+`NASSET_AWS_REGION` with the exact region code. The deployment script
+uses the action's selected region for AWS API calls.
+
+**IAM policy ARN region must match.** The example deployer policy uses
+`ap-southeast-2` by default. If your project uses another Region, change
+all its regional resource ARNs to that region when saving the inline
+IAM policy. Global IAM role ARNs have no region.
+
+If the AWS deployment fails with
+`with an explicit deny in a service control policy`, first check
+this region mismatch before granting new IAM permissions.
+The newer AWS Project experience creates AWS-managed Organizations
+policies that restrict regional actions even if you have no
+Organizations administration interface.
+
+Official documentation:
+[AWS project regions](https://docs.aws.amazon.com/accounts/latest/reference/project-regions.html) and
+[managed SCPs for projects](https://docs.aws.amazon.com/accounts/latest/reference/scps-and-rcps-for-projects.html).
+ The official
 `aws-actions/configure-aws-credentials` GitHub Action uses the two protected
 secrets only in the main-branch deployment job and obtains credentials for
 that GitHub-hosted job. It does not print access keys or put them into git.
