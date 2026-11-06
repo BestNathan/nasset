@@ -46,3 +46,6 @@ jobs:
           assert assets["PAXG"]["futures"]
           print("live archive research projection:", data["analytics"]["as_of"])
           PY
+      - name: Render all quant research panels with real market-data JSON
+        if: github.repository == 'BestNathan/nasset'
+        run: node tests/deribit_dashboard_ui_smoke.cjs /tmp/deribit-research.json
