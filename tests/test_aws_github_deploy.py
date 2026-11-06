@@ -1,4 +1,4 @@
-"""GitHub-Secrets-only AWS provisioning contracts; no AWS account required."""
+"""AWS GitHub-Secret deployment contracts; no AWS account required for tests."""
 from pathlib import Path
 import json
 import runpy
@@ -13,10 +13,12 @@ POLICY = ROOT / "config/aws-deribit-scheduler.json"
 WORKFLOW = ROOT / ".github/workflows/aws-deribit-deploy.yml"
 
 
-def test_default_policy_cannot_call_aws_or_enable_scheduler(capsys, monkeypatch):
-    policy = S["load_cloud_policy"]()
-    assert policy == {"version": 1, "state": "not_deployed", "revision": 0}
-    # boto3 and credentials are not loaded in this state; a merge is safe.
+def test_not_deployed_policy_cannot_call_aws_or_enable_scheduler(capsys, monkeypatch):
+    # Test the no-op contract independently of the actual desired deployment
+    # state: this test must remain green after activation in production.
+    policy = {"version": 1, "state": "not_deployed", "revision": 0}
+    assert S["validate_cloud_policy"](policy) == policy
+    monkeypatch.setitem(S["main"].__globals__, "load_cloud_policy", lambda: policy)
     result = S["main"](["reconcile"])
     assert result == {"status": "skipped", "reason": "AWS deployment not requested"}
     assert "token" not in capsys.readouterr().out.lower()
@@ -181,27 +183,28 @@ def test_deployment_workflow_only_runs_on_main_without_pr_or_schedule():
     job = root["jobs"]["manage"]
     assert "github.repository == 'BestNathan/nasset'" in job["if"]
     assert "github.ref == 'refs/heads/main'" in job["if"]
-    assert job["permissions"] == {"contents": "read", "id-token": "write"}
+    assert job["permissions"] == {"contents": "read"}
     assert job["env"]["AWS_DEFAULT_REGION"] == "ap-southeast-1"
     assert "AWS_ACCESS_KEY_ID" not in job["env"]
     assert "AWS_SECRET_ACCESS_KEY" not in job["env"]
     steps = job["steps"]
-    aws = next(step for step in steps if step.get("name", "").startswith("Obtain short-lived"))
+    aws = next(step for step in steps if step.get("name", "").startswith("Configure AWS IAM"))
     assert aws["uses"] == "aws-actions/configure-aws-credentials@v6.3.0"
     assert aws["if"] == "${{ steps.gate.outputs.need_aws == 'true' }}"
-    assert aws["with"]["role-to-assume"] == "${{ vars.NASSET_AWS_DEPLOY_ROLE_ARN }}"
+    assert aws["with"]["aws-access-key-id"] == "${{ secrets.NASSET_AWS_ACCESS_KEY_ID }}"
+    assert aws["with"]["aws-secret-access-key"] == "${{ secrets.NASSET_AWS_SECRET_ACCESS_KEY }}"
     assert aws["with"]["aws-region"] == "ap-southeast-1"
     assert aws["with"]["unset-current-credentials"] == "true"
     assert aws["with"]["mask-aws-account-id"] == "true"
     gate = next(step for step in steps if step.get("id") == "gate")
     assert "not_deployed" in gate["run"]
     assert 'echo "need_aws=false" >> "$GITHUB_OUTPUT"' in gate["run"]
-    assert "NASSET_AWS_DEPLOY_ROLE_ARN" in next(
-        step for step in steps if step.get("name", "").startswith("Validate OIDC")
-    )["run"]
-    assert "NASSET_AWS_ACCESS_KEY_ID" not in WORKFLOW.read_text()
-    assert "NASSET_AWS_SECRET_ACCESS_KEY" not in WORKFLOW.read_text()
-    assert "NASSET_AWS_SESSION_TOKEN" not in WORKFLOW.read_text()
+    validate = next(step for step in steps if step.get("name", "").startswith("Validate GitHub AWS"))
+    assert validate["if"] == "${{ steps.gate.outputs.need_aws == 'true' }}"
+    assert validate["env"]["KEY"] == "${{ secrets.NASSET_AWS_ACCESS_KEY_ID }}"
+    assert validate["env"]["SECRET"] == "${{ secrets.NASSET_AWS_SECRET_ACCESS_KEY }}"
+    assert "id-token: write" not in WORKFLOW.read_text()
+    assert "NASSET_AWS_DEPLOY_ROLE_ARN" not in WORKFLOW.read_text()
 
     assert any(s.get("name") == "Reconcile Git-managed desired state" and
                s["env"]["NASSET_GITHUB_DISPATCH_TOKEN"] ==
