@@ -9,6 +9,8 @@ const data = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 const script = fs.readFileSync("site/deribit.js", "utf8");
 const elements = new Map();
 const nodes = new Map();
+let fetchCount=0;
+
 
 function element(key) {
   if(!elements.has(key))elements.set(key,{
@@ -35,6 +37,8 @@ const products = ["options","futures"].map(id=>{
 const tabs = ["surface","risk","options"].map(id=>{
   const el=button("tab:"+id);el.dataset.tab=id;return el;
 });
+// Production Pages embeds the verified snapshot; no JSON HTTP request is required.
+element("deribit-dashboard-bootstrap").textContent=JSON.stringify(data);
 let bodyClick;
 const context = vm.createContext({
   console, Date, Number, Math, Set, Map, Intl, Array, Object,
@@ -50,9 +54,9 @@ const context = vm.createContext({
     },
     body:{addEventListener(name,handler){if(name==="click")bodyClick=handler;}},
   },
-  fetch:async url=>{
-    assert.ok(url.startsWith("./data/deribit-dashboard.json?t="));
-    return {ok:true,json:async()=>data};
+  fetch:async ()=>{
+    fetchCount++;
+    throw new Error("embedded Deribit snapshot must not trigger network fetch");
   },
 });
 vm.runInContext(script,context,{timeout:10000,filename:"site/deribit.js"});
@@ -106,6 +110,7 @@ setImmediate(()=>{
     assert.equal(evaluate("state.family"),"linear");
     assert.ok(element("quant-product-note").textContent.includes("没有可验证"));
 
+    assert.equal(fetchCount,0,"embedded bootstrap must render without a separate HTTP request");
     console.log("Verified distinct options/futures navigation, KPI separation, ETH/BTC markets and PAXG-only futures from",
       data.analytics.as_of);
   }catch(err){console.error(err);process.exitCode=1;}

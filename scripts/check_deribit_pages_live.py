@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import time
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -18,6 +19,7 @@ def verify_live(site_url: str, expected: dict, *, attempts: int = 12, delay: flo
     if not site_url.startswith("https://"):
         raise ValueError("Pages URL must use HTTPS")
     url = urljoin(site_url.rstrip("/") + "/", "data/deribit-dashboard.json")
+    html_url = urljoin(site_url.rstrip("/") + "/", "deribit.html")
     expected_commit = expected["archive_commit"]
     expected_slot = expected["latest_slot"]
     last_error: Exception | None = None
@@ -39,14 +41,38 @@ def verify_live(site_url: str, expected: dict, *, attempts: int = 12, delay: flo
                     "Pages served a stale snapshot: "
                     + str(actual.get("latest_slot")) + " vs " + str(expected_slot)
                 )
-            print(f"Public Pages JSON verified: {expected_slot} / {expected_commit[:12]}")
+            # Verify the deployed HTML includes the same snapshot and inline
+            # app, rather than merely proving that the sidecar JSON exists.
+            html_request = Request(
+                html_url + "?" + urlencode({"snapshot": expected_slot, "attempt": attempt}),
+                headers={"Accept": "text/html", "Cache-Control": "no-cache"},
+            )
+            with urlopen(html_request, timeout=20) as response:
+                if response.status != 200:
+                    raise RuntimeError(f"Pages HTML HTTP {response.status}")
+                raw_html = response.read(8 * 1024 * 1024 + 1)
+            if len(raw_html) > 8 * 1024 * 1024:
+                raise RuntimeError("Pages HTML exceeds 8 MiB")
+            html = raw_html.decode("utf-8")
+            match = re.search(
+                r'<script id="deribit-dashboard-bootstrap" type="application/json">\s*(.*?)\s*</script>',
+                html, flags=re.DOTALL,
+            )
+            if not match or '<script data-nasset-deribit-inline-app>' not in html:
+                raise RuntimeError("Pages served HTML without embedded snapshot/app")
+            embedded = json.loads(match.group(1))
+            if (embedded.get("archive_commit") != expected_commit
+                    or embedded.get("latest_slot") != expected_slot
+                    or embedded.get("analytics", {}).get("version") != 1):
+                raise RuntimeError("Pages served stale or invalid embedded HTML snapshot")
+            print(f"Public Pages JSON + standalone HTML verified: {expected_slot} / {expected_commit[:12]}")
             return
         except (HTTPError, URLError, TimeoutError, ValueError, RuntimeError) as exc:
             last_error = exc
             print(f"Pages public check {attempt + 1}/{attempts}: {exc}", flush=True)
             if attempt + 1 < attempts:
                 time.sleep(delay)
-    raise RuntimeError("Public Deribit Pages JSON never became current") from last_error
+    raise RuntimeError("Public Deribit Pages HTML/JSON never became current") from last_error
 
 
 def main() -> None:

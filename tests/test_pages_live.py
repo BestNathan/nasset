@@ -18,18 +18,34 @@ VERIFY = runpy.run_path(str(ROOT / "scripts/check_deribit_pages_live.py"))["veri
 
 def test_fingerprinted_asset_urls_are_deterministic(tmp_path):
     page = tmp_path / "deribit.html"
-    html = (
+    page.write_text(
         '<link href="./styles.css"><link href="./deribit.css">'
-        '<script src="./deribit.js"></script>'
+        '<script src="./deribit.js" defer></script>',
+        encoding="utf-8",
     )
-    page.write_text(html, encoding="utf-8")
     for name in ("styles.css", "deribit.css", "deribit.js"):
         (tmp_path / name).write_text(name, encoding="utf-8")
+    (tmp_path / "data").mkdir()
+    snapshot = {
+        "version": 1,
+        "archive_commit": "a" * 40,
+        "latest_slot": "2026-11-07T15:00:00+00:00",
+        "analytics": {"version": 1, "assets": {"BTC": {"markets": {}}}},
+        "source": 'dangerous </script><script>alert("x")</script>',
+    }
+    (tmp_path / "data" / "deribit-dashboard.json").write_text(
+        json.dumps(snapshot), encoding="utf-8"
+    )
     STAMP(tmp_path)
     first = page.read_text(encoding="utf-8")
-    for name in ("styles.css", "deribit.css", "deribit.js"):
+    for name in ("styles.css", "deribit.css"):
         digest = hashlib.sha256(name.encode()).hexdigest()[:12]
         assert f"./{name}?v={digest}" in first
+    assert '<script id="deribit-dashboard-bootstrap" type="application/json">' in first
+    assert '<script data-nasset-deribit-inline-app>' in first
+    assert "deribit.js\" defer" not in first
+    assert "</script><script>alert" not in first
+    assert r"\u003c/script\u003e" in first
     STAMP(tmp_path)
     assert page.read_text(encoding="utf-8") == first
 
@@ -44,11 +60,20 @@ def test_public_data_check_rejects_missing_or_stale_snapshot(monkeypatch):
         "version": 1,
         "analytics": {"version": 1, "assets": {"BTC": {"markets": {}}}},
     }
+    page_snapshot = {**delivered}
     seen = []
 
     def respond(request, timeout):
         seen.append(request.full_url)
-        buf = io.BytesIO(json.dumps(delivered).encode())
+        if "/deribit.html?" in request.full_url:
+            payload = (
+                '<script id="deribit-dashboard-bootstrap" type="application/json">'
+                + json.dumps(page_snapshot)
+                + '</script><script data-nasset-deribit-inline-app></script>'
+            ).encode()
+        else:
+            payload = json.dumps(delivered).encode()
+        buf = io.BytesIO(payload)
         buf.status = 200
         return buf
 
@@ -57,11 +82,16 @@ def test_public_data_check_rejects_missing_or_stale_snapshot(monkeypatch):
     assert seen and seen[0].startswith(
         "https://example.github.io/nasset/data/deribit-dashboard.json?"
     )
+    assert seen[1].startswith("https://example.github.io/nasset/deribit.html?")
     delivered["latest_slot"] = "2026-11-07T14:00:00+00:00"
     with pytest.raises(RuntimeError, match="never became current"):
         VERIFY("https://example.github.io/nasset/", expected, attempts=1)
     delivered["latest_slot"] = expected["latest_slot"]
     delivered["analytics"] = {"version": 0, "assets": {}}
+    with pytest.raises(RuntimeError, match="never became current"):
+        VERIFY("https://example.github.io/nasset/", expected, attempts=1)
+    delivered["analytics"] = {"version": 1, "assets": {"BTC": {"markets": {}}}}
+    page_snapshot = {**delivered, "latest_slot": "2026-11-07T14:00:00+00:00"}
     with pytest.raises(RuntimeError, match="never became current"):
         VERIFY("https://example.github.io/nasset/", expected, attempts=1)
 

@@ -51,3 +51,9 @@ jobs:
       - name: Render all quant research panels with real market-data JSON
         if: github.repository == 'BestNathan/nasset'
         run: node tests/deribit_dashboard_ui_smoke.cjs /tmp/deribit-research.json
+      - name: Verify self-contained Pages bundle with live archive
+        if: github.repository == 'BestNathan/nasset'
+        run: |
+          cp /tmp/deribit-research.json site/data/deribit-dashboard.json
+          python scripts/stamp_pages_assets.py
+          node tests/deribit_bundle_smoke.cjs site/deribit.html /tmp/deribit-research.json
