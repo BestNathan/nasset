@@ -7,6 +7,7 @@ const vm = require("node:vm");
 const assert = require("node:assert/strict");
 const data = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 const script = fs.readFileSync("site/deribit.js", "utf8");
+const metricGuide=fs.readFileSync("site/metric-guide.js", "utf8");
 const elements = new Map();
 const nodes = new Map();
 let fetchCount=0;
@@ -59,6 +60,7 @@ const context = vm.createContext({
     throw new Error("embedded Deribit snapshot must not trigger network fetch");
   },
 });
+vm.runInContext(metricGuide,context,{timeout:10000,filename:"site/metric-guide.js"});
 vm.runInContext(script,context,{timeout:10000,filename:"site/deribit.js"});
 const evaluate = cmd => vm.runInContext(cmd,context,{timeout:10000});
 const click=(selector,control)=>bodyClick({target:{closest:q=>q===selector?control:null}});
@@ -69,6 +71,9 @@ const contains=(text)=>{
 setImmediate(()=>{
   try{
     contains("Volatility Surface");
+    assert.ok(element("quant-kpis").innerHTML.includes("波动率水平"));
+    assert.ok(element("quant-kpis").innerHTML.includes("metric-disclosure"));
+    assert.ok(element("quant-kpis").innerHTML.includes("计算公式 / 口径"));
     contains("quant-heatmap");
     assert.equal(evaluate("state.product"),"options");
     assert.equal(element("quant-tabs").hidden,false);
