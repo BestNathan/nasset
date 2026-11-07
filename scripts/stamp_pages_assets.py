@@ -21,14 +21,17 @@ METRIC_SCRIPT = '<script src="./metric-guide.js"></script>'
 def stamp(root: Path = ROOT) -> None:
     page = root / "deribit.html"
     html = page.read_text(encoding="utf-8")
+    placeholder = "__NASSET_DERIBIT_BUNDLE__"
     if START in html:
         before, remainder = html.split(START, 1)
         if END not in remainder:
             raise ValueError("incomplete Deribit inline bundle")
         _, after = remainder.split(END, 1)
-        html = before + METRIC_SCRIPT + '\n' + EXTERNAL_SCRIPT + after
-    if html.count(EXTERNAL_SCRIPT) != 1 or html.count(METRIC_SCRIPT) != 1:
-        raise ValueError("expected one unbundled Deribit app and metric guide")
+        html = before + placeholder + after
+    else:
+        if html.count(EXTERNAL_SCRIPT) != 1 or html.count(METRIC_SCRIPT) != 1:
+            raise ValueError("expected one unbundled Deribit app and metric guide")
+        html = html.replace(METRIC_SCRIPT, "").replace(EXTERNAL_SCRIPT, placeholder)
 
     for name in ("styles.css", "deribit.css"):
         digest = hashlib.sha256((root / name).read_bytes()).hexdigest()[:12]
@@ -65,7 +68,7 @@ def stamp(root: Path = ROOT) -> None:
         + script + "\n</script>\n"
         + END
     )
-    html = html.replace(METRIC_SCRIPT, "").replace(EXTERNAL_SCRIPT, bundle)
+    html = html.replace(placeholder, bundle)
     page.write_text(html, encoding="utf-8")
     print(
         "Deribit self-contained Pages bundle: "
