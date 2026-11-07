@@ -55,7 +55,7 @@ def verify_live(site_url: str, expected: dict, *, attempts: int = 12, delay: flo
                 raise RuntimeError("Pages HTML exceeds 8 MiB")
             html = raw_html.decode("utf-8")
             match = re.search(
-                r'<script id="deribit-dashboard-bootstrap" type="application/json">\\s*(.*?)\\s*</script>',
+                r'<script id="deribit-dashboard-bootstrap" type="application/json">\s*(.*?)\s*</script>',
                 html, flags=re.DOTALL,
             )
             if not match or '<script data-nasset-deribit-inline-app>' not in html:
