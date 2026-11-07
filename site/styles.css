@@ -125,3 +125,21 @@ footer{display:flex;justify-content:space-between;gap:20px;color:var(--soft);bor
 .method-disclosure #riskLadder{padding-bottom:16px}
 @media(max-width:900px){.research-heading{flex-direction:column;align-items:flex-start;gap:10px}}
 @media(max-width:700px){.site-header{flex-wrap:wrap;gap:12px}.site-nav{order:3;flex-basis:100%;overflow-x:auto;padding-bottom:2px}.site-nav a{font-size:12px;padding:9px 11px}.site-repository{margin-left:auto}.page-hero{padding:28px 0 22px}.page-hero h1{font-size:38px}.research-heading h2{font-size:23px}.research-section{margin-bottom:32px}.method-disclosure{padding:4px 13px}.method-disclosure>summary{align-items:start}}
+
+
+/* Shared metric contract: collapsed = number; expanded = formula, meaning, limits.
+   Native <details> supports pointer, keyboard and mobile without JS state. */
+.metric-disclosure{min-width:0}
+.metric-disclosure>summary{display:block;cursor:pointer;list-style:none;outline-offset:3px}
+.metric-disclosure>summary::-webkit-details-marker{display:none}
+.metric-disclosure>summary:focus-visible{outline:2px solid var(--accent,#b9ea78);border-radius:6px}
+.metric-expand-indicator{display:block;font-size:10px;font-weight:600;letter-spacing:.02em;margin-top:9px;color:var(--muted,#89968e)}
+.metric-expand-indicator span{display:inline-block;transition:transform .16s}
+.metric-disclosure[open]>.metric-explain{margin-top:13px;padding-top:13px;border-top:1px solid var(--line,#31372f)}
+.metric-disclosure[open]>.metric-explain+.metric-expand-indicator{display:none}
+.metric-disclosure[open]>.metric-explain~summary .metric-expand-indicator span,
+.metric-disclosure[open]>.metric-expand-indicator span{transform:rotate(45deg)}
+.metric-explain{display:grid;gap:11px;overflow-wrap:anywhere;min-width:0}
+.metric-explain-row>strong{display:block;font-size:10px;color:var(--accent,#c6f69a);font-weight:700;letter-spacing:.01em}
+.metric-explain-row>p{font-size:11px;color:var(--muted,#95a19a);line-height:1.6;margin:4px 0 0;white-space:normal}
+.metric-disclosure[open]{position:relative;z-index:1}
