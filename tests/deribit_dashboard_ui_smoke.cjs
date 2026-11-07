@@ -38,6 +38,7 @@ const tabs = ["surface","risk","options"].map(id=>{
 let bodyClick;
 const context = vm.createContext({
   console, Date, Number, Math, Set, Map, Intl, Array, Object,
+  setTimeout, clearTimeout, AbortController, window:{},
   document:{
     getElementById:element,
     querySelectorAll(query){

@@ -523,35 +523,78 @@ function bindEvents(){
     const node=$("quant-chain-table");if(node)node.innerHTML=chainTable();
   });
 }
+const DATA_TIMEOUT_MS = 7000;
+let loadSerial = 0;
+let activeRequest = null;
+
+function finishBoot(){
+  if(typeof window !== "undefined"){
+    window.__nassetDeribitLoadSettled = true;
+    clearTimeout(window.__nassetDeribitWatchdog);
+  }
+}
+
+async function fetchDashboard(){
+  const controller = new AbortController();
+  activeRequest = controller;
+  let timeoutId;
+  try {
+    return await Promise.race([
+      (async()=>{
+        const res=await fetch("./data/deribit-dashboard.json?t="+Date.now(),{
+          cache:"no-store",signal:controller.signal,
+        });
+        if(!res.ok)throw new Error("数据接口 HTTP "+res.status);
+        return res.json();
+      })(),
+      new Promise((_,reject)=>{
+        timeoutId=setTimeout(()=>{
+          reject(new Error("下载市场数据超时（7 秒）"));
+          controller.abort();
+        },DATA_TIMEOUT_MS);
+      }),
+    ]);
+  }finally{
+    clearTimeout(timeoutId);
+    if(activeRequest===controller)activeRequest=null;
+  }
+}
+
 async function boot(){
+  const serial=++loadSerial;
+  if(activeRequest)activeRequest.abort();
+  if(typeof window !== "undefined")window.__nassetDeribitLoadSettled=false;
+  $("quant-kpis").innerHTML='<div class="quant-loading">正在下载已计算的市场快照…</div>';
   $("quant-asof").innerHTML='<span>SNAPSHOT / UTC</span><strong>正在读取…</strong>';
-  $("quant-content").innerHTML='<div class="quant-loading">正在获取最新的已验证市场数据…</div>';
+  $("quant-content").innerHTML='<div class="quant-loading">正在读取 GitHub Pages 市场数据，不会在设备上重新计算 Greeks。</div>';
   let lastError;
-  for(let attempt=1;attempt<=3;attempt++){
+  for(let attempt=1;attempt<=2;attempt++){
     try{
-      const url="./data/deribit-dashboard.json?t="+Date.now();
-      const res=await fetch(url,{cache:"no-store"});
-      if(!res.ok)throw new Error("数据接口 HTTP "+res.status);
-      const data=await res.json();
+      const data=await fetchDashboard();
+      if(serial!==loadSerial)return;
       if(data.version!==1||data.analytics?.version!==1||!data.analytics?.assets)
         throw new Error("分析模型版本与页面不匹配");
       if(!data.analytics.assets.BTC)throw new Error("缺少 BTC 研究数据");
       state.data=data;
       render();
+      finishBoot();
       return;
     }catch(err){
+      if(serial!==loadSerial)return;
       lastError=err;
       console.error("Deribit dashboard load attempt "+attempt+" failed",err);
-      if(attempt<3)await new Promise(resolve=>setTimeout(resolve,attempt*500));
+      if(attempt<2)await new Promise(resolve=>setTimeout(resolve,500));
     }
   }
+  if(serial!==loadSerial)return;
   $("quant-kpis").innerHTML="";
   $("quant-asof").innerHTML='<span>STATUS</span><strong>数据读取失败</strong>';
   $("quant-content").innerHTML='<div class="quant-error"><strong>无法加载 Deribit 研究数据。</strong>'+
     '<p>'+esc(lastError?.message||"数据读取失败")+'</p>'+
-    '<p>归档可能正常，但当前浏览器未能读取或解析 GitHub Pages 数据文件。</p>'+
+    '<p>期权风险指标已在服务器预计算；请检查当前网络或重新加载。</p>'+
     '<p><button type="button" data-retry-deribit>重新加载</button> · '+
-    '<a href="./data/deribit-dashboard.json" target="_blank" rel="noopener noreferrer">直接检查数据 JSON</a></p></div>';
+    '<a href="./data/deribit-dashboard.json" target="_blank" rel="noopener noreferrer">检查数据 JSON</a></p></div>';
+  finishBoot();
 }
 
 bindEvents();
