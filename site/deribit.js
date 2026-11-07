@@ -484,6 +484,8 @@ function render(){
 }
 function bindEvents(){
   document.body.addEventListener("click",ev=>{
+    const retry=ev.target.closest("[data-retry-deribit]");
+    if(retry){boot();return;}
     const product=ev.target.closest("[data-product]");
     if(product&&!product.disabled){
       state.product=product.dataset.product;
@@ -522,20 +524,35 @@ function bindEvents(){
   });
 }
 async function boot(){
-  try{
-    const res=await fetch("./data/deribit-dashboard.json?t="+Date.now(),{cache:"no-store"});
-    if(!res.ok)throw new Error("DATA "+res.status);
-    const data=await res.json();
-    if(data.version!==1||data.analytics?.version!==1||!data.analytics.assets)throw new Error("分析模型尚未发布");
-    state.data=data;
-    if(!data.analytics.assets?.BTC)throw new Error("缺少 BTC 研究数据");
-    render();
-  }catch(err){
-    $("quant-kpis").innerHTML="";
-    $("quant-asof").innerHTML='<span>STATUS</span><strong>暂无有效分析快照</strong>';
-    $("quant-content").innerHTML='<div class="quant-error"><strong>衍生品研究数据暂时不可用。</strong>'+
-      '<p>'+esc(err.message||"数据读取失败")+'</p><p>数据模型必须来自完整的已验证归档，不会展示模拟敏感度或虚构曲面。</p></div>';
+  $("quant-asof").innerHTML='<span>SNAPSHOT / UTC</span><strong>正在读取…</strong>';
+  $("quant-content").innerHTML='<div class="quant-loading">正在获取最新的已验证市场数据…</div>';
+  let lastError;
+  for(let attempt=1;attempt<=3;attempt++){
+    try{
+      const url="./data/deribit-dashboard.json?t="+Date.now();
+      const res=await fetch(url,{cache:"no-store"});
+      if(!res.ok)throw new Error("数据接口 HTTP "+res.status);
+      const data=await res.json();
+      if(data.version!==1||data.analytics?.version!==1||!data.analytics?.assets)
+        throw new Error("分析模型版本与页面不匹配");
+      if(!data.analytics.assets.BTC)throw new Error("缺少 BTC 研究数据");
+      state.data=data;
+      render();
+      return;
+    }catch(err){
+      lastError=err;
+      console.error("Deribit dashboard load attempt "+attempt+" failed",err);
+      if(attempt<3)await new Promise(resolve=>setTimeout(resolve,attempt*500));
+    }
   }
+  $("quant-kpis").innerHTML="";
+  $("quant-asof").innerHTML='<span>STATUS</span><strong>数据读取失败</strong>';
+  $("quant-content").innerHTML='<div class="quant-error"><strong>无法加载 Deribit 研究数据。</strong>'+
+    '<p>'+esc(lastError?.message||"数据读取失败")+'</p>'+
+    '<p>归档可能正常，但当前浏览器未能读取或解析 GitHub Pages 数据文件。</p>'+
+    '<p><button type="button" data-retry-deribit>重新加载</button> · '+
+    '<a href="./data/deribit-dashboard.json" target="_blank" rel="noopener noreferrer">直接检查数据 JSON</a></p></div>';
 }
+
 bindEvents();
 boot();
