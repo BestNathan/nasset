@@ -567,6 +567,22 @@ async function boot(){
   $("quant-kpis").innerHTML='<div class="quant-loading">正在下载已计算的市场快照…</div>';
   $("quant-asof").innerHTML='<span>SNAPSHOT / UTC</span><strong>正在读取…</strong>';
   $("quant-content").innerHTML='<div class="quant-loading">正在读取 GitHub Pages 市场数据，不会在设备上重新计算 Greeks。</div>';
+  // Published Pages bundles a verified snapshot into the HTML. Prefer this
+  // synchronous, same-document source: no second large network request.
+  const embedded=$("deribit-dashboard-bootstrap");
+  if(embedded){
+    try{
+      const data=JSON.parse(embedded.textContent);
+      if(data.version!==1||data.analytics?.version!==1||!data.analytics?.assets?.BTC)
+        throw new Error("嵌入数据模型版本无效");
+      state.data=data;
+      render();
+      finishBoot();
+      return;
+    }catch(err){
+      console.error("Embedded Deribit snapshot is invalid; trying JSON fallback",err);
+    }
+  }
   let lastError;
   for(let attempt=1;attempt<=2;attempt++){
     try{
