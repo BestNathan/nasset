@@ -60,11 +60,20 @@ def test_public_data_check_rejects_missing_or_stale_snapshot(monkeypatch):
         "version": 1,
         "analytics": {"version": 1, "assets": {"BTC": {"markets": {}}}},
     }
+    page_snapshot = {**delivered}
     seen = []
 
     def respond(request, timeout):
         seen.append(request.full_url)
-        buf = io.BytesIO(json.dumps(delivered).encode())
+        if "/deribit.html?" in request.full_url:
+            payload = (
+                '<script id="deribit-dashboard-bootstrap" type="application/json">'
+                + json.dumps(page_snapshot)
+                + '</script><script data-nasset-deribit-inline-app></script>'
+            ).encode()
+        else:
+            payload = json.dumps(delivered).encode()
+        buf = io.BytesIO(payload)
         buf.status = 200
         return buf
 
@@ -73,11 +82,16 @@ def test_public_data_check_rejects_missing_or_stale_snapshot(monkeypatch):
     assert seen and seen[0].startswith(
         "https://example.github.io/nasset/data/deribit-dashboard.json?"
     )
+    assert seen[1].startswith("https://example.github.io/nasset/deribit.html?")
     delivered["latest_slot"] = "2026-11-07T14:00:00+00:00"
     with pytest.raises(RuntimeError, match="never became current"):
         VERIFY("https://example.github.io/nasset/", expected, attempts=1)
     delivered["latest_slot"] = expected["latest_slot"]
     delivered["analytics"] = {"version": 0, "assets": {}}
+    with pytest.raises(RuntimeError, match="never became current"):
+        VERIFY("https://example.github.io/nasset/", expected, attempts=1)
+    delivered["analytics"] = {"version": 1, "assets": {"BTC": {"markets": {}}}}
+    page_snapshot = {**delivered, "latest_slot": "2026-11-07T14:00:00+00:00"}
     with pytest.raises(RuntimeError, match="never became current"):
         VERIFY("https://example.github.io/nasset/", expected, attempts=1)
 
