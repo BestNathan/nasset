@@ -14,8 +14,8 @@ const data=JSON.parse(html.slice(start+marker.length,close).trim());
 assert.equal(data.archive_commit,expected.archive_commit);
 assert.equal(data.latest_slot,expected.latest_slot);
 assert.equal(data.latest.option_chain.length,expected.latest.option_chain.length);
-assert.equal(data.analytics.assets.BTC.markets.inverse.greeks_by_instrument.length,
-  expected.analytics.assets.BTC.markets.inverse.greeks_by_instrument.length);
+assert.equal(Object.keys(data.analytics.assets.BTC.markets.inverse.greeks_by_instrument).length,
+  Object.keys(expected.analytics.assets.BTC.markets.inverse.greeks_by_instrument).length);
 assert.ok(html.includes('<script data-nasset-deribit-inline-app>'));
 assert.ok(html.includes('const embedded=$("deribit-dashboard-bootstrap")'));
 assert.ok(!/<script src="\.\/deribit\.js/.test(html),"no external JS dependency");
