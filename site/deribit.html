@@ -59,7 +59,7 @@
     </div>
 
     <section id="quant-kpis" class="quant-kpis" aria-label="市场核心指标">
-      <div class="quant-loading">正在计算隐含波动率与风险敏感度…</div>
+      <div class="quant-loading">正在下载已计算的市场快照…</div>
     </section>
 
     <nav id="quant-tabs" class="quant-tabs" aria-label="期权研究维度">
@@ -88,6 +88,32 @@
       <a href="https://github.com/BestNathan/nasset/blob/main/docs/deribit-pages.md" target="_blank" rel="noopener noreferrer">METHODS</a>
     </footer>
   </main>
+  <script>
+    // This guard runs independently of deribit.js, including on script 404.
+    (function(){
+      function showUnavailable(reason){
+        if(window.__nassetDeribitLoadSettled)return;
+        var kpis=document.getElementById("quant-kpis");
+        var asof=document.getElementById("quant-asof");
+        var content=document.getElementById("quant-content");
+        if(kpis)kpis.textContent="";
+        if(asof)asof.innerHTML="<span>STATUS</span><strong>加载失败</strong>";
+        if(content)content.innerHTML='<div class="quant-error"><strong>数据加载未完成。</strong>'+
+          '<p>'+reason+'</p><p>请尝试重新打开页面，或直接检查数据文件。</p>'+
+          '<p><a href="./deribit.html?retry=1">重新打开页面</a> · '+
+          '<a href="./data/deribit-dashboard.json" target="_blank" rel="noopener noreferrer">检查数据 JSON</a></p></div>';
+      }
+      window.__nassetDeribitWatchdog=setTimeout(function(){
+        showUnavailable("页面脚本未完成初始化，可能是网络或脚本被阻止。");
+      },16000);
+      window.addEventListener("error",function(event){
+        if(event.target && event.target.tagName==="SCRIPT" && event.target.src.includes("deribit.js")){
+          clearTimeout(window.__nassetDeribitWatchdog);
+          showUnavailable("期权页面 JavaScript 加载失败。");
+        }
+      },true);
+    })();
+  </script>
   <script src="./deribit.js" defer></script>
 </body>
 </html>
