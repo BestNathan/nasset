@@ -40,7 +40,9 @@ const latestChain = () => (state.data?.latest?.option_chain || []).filter(r=>
     ["USDC","USDT","USD"].includes(r.settlement_currency)));
 const methodPill = label => '<span class="quant-pill">'+esc(label)+'</span>';
 const panelTitle = (title,detail="") => '<div class="quant-panel-title"><h3>'+esc(title)+'</h3>'+
-  (detail?'<span>'+esc(detail)+'</span>':"")+'</div>';
+  (detail?'<span>'+esc(detail)+'</span>':"")+'</div>'+
+  (NassetMetricGuide.resolve(title)?NassetMetricGuide.wrap(title,
+    '<span class="quant-panel-how">公式、口径与解读</span>',"quant-panel-method"):"");
 const empty = (text) => '<div class="quant-placeholder">'+esc(text)+'</div>';
 const chartTag = (content,label) => '<svg viewBox="0 0 740 250" class="quant-chart" role="img" aria-label="'+esc(label)+'">'+content+'</svg>';
 
@@ -476,6 +478,10 @@ function chainTable(){
 }
 function optionsView(){
   const m=market();if(!m)return empty("当前没有已归档期权链。PAXG 不提供可用 Deribit 期权。");
+  const metricLegend='<div class="quant-metric-legend" aria-label="期权合约指标定义">'+
+    ["Mark IV","Delta","Gamma","Vanna","Volga","Charm","OI"].map(name=>
+      NassetMetricGuide.wrap(name,'<strong>'+esc(name)+'</strong>',"quant-metric-chip")
+    ).join("")+'</div>';
   const menus='<div class="quant-table-controls"><label>方向<select data-filter="side">'+
     [["all","全部"],["call","Call"],["put","Put"]].map(([key,label])=>
       '<option value="'+key+'" '+(state.optionSide===key?"selected":"")+'>'+label+'</option>').join("")+
@@ -491,7 +497,7 @@ function optionsView(){
     "逐合约模型敏感度用于核对曲面、期限集中度与聚合风险结果。",
     "MODEL Δ / Γ / VANNA / VOLGA / CHARM")+
     '<div class="quant-muted-warning">带 * 的 Greeks 均由 Black-76 从 Mark IV 推导，单位为单个标的的模型敏感度，非 Deribit 直接推送，未乘未平仓量。</div>'+
-    '<article class="quant-panel">'+menus+'<div id="quant-chain-table">'+chainTable()+'</div></article>';
+    '<article class="quant-panel">'+menus+metricLegend+'<div id="quant-chain-table">'+chainTable()+'</div></article>';
 }
 function render(){
   if(!state.data)return;
