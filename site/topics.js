@@ -249,7 +249,7 @@ function renderCompare(){
     ["2025成本股息率",r=>percent(data(r)?.simulation?.calendar_2025_yield_on_cost_pct)],
     ["连续派息",r=>valid(stats(r).consecutive_years_to_2025)?stats(r).consecutive_years_to_2025+"年":"—"]
   ];
-  section.innerHTML='<h2>跨公司比较 <small>'+rows.length+'/5</small></h2><div class="topic-table-scroll"><table class="topic-table"><thead><tr><th>指标</th>'+
+  section.innerHTML='<p class="topic-selection-count">已选择 '+rows.length+'/5 家公司</p><div class="topic-table-scroll"><table class="topic-table"><thead><tr><th>指标</th>'+
   rows.map(r=>'<th>'+escapeHtml(r.name)+'<small>'+r.symbol+'</small></th>').join("")+
   '</tr></thead><tbody>'+columns.map(([label,fn])=>'<tr><td>'+label+'</td>'+
     rows.map(r=>'<td>'+escapeHtml(fn(r))+'</td>').join("")+'</tr>').join("")+
