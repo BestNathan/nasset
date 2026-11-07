@@ -171,3 +171,43 @@ def test_dashboard_projection_exposes_modelled_analytics_without_native_greek_cl
     assert data["history"][0].get("futures") is None
     assert data["latest"]["option_chain"][0]["captured_at"].startswith("2026-11-06T12:12")
     assert "dealer" in data["analytics"]["position_scope"].lower()
+
+
+def test_large_daily_manifest_preserves_event_keys_and_renders_quant_surface():
+    # Real midnight UTC batches can enumerate >10,000 historical event keys,
+    # producing a >1 MiB manifest. It is valid (publisher limit: 16 MiB).
+    from nasset.deribit_publish import MANIFEST_MAX_BYTES
+
+    archive=FakeArchive()
+    slot=datetime(2026,11,7,0,tzinfo=timezone.utc)
+    base=write_hour(archive,slot)
+    path=base+".manifest.json"
+    old=archive.objects[archive.entries[path]["sha"]]
+    document=json.loads(old.split(b"\n",1)[1])
+    for i in range(10200):
+        marker_path=(
+            f"deribit/event_keys/historical_volatility/BTC/2026/11/07/{1794000000+i}.key"
+        )
+        marker_sha=archive.add(marker_path,b"deribit-event-v1\nexample")
+        document["artifacts"].append({"path":marker_path,"sha":marker_sha})
+    document["artifacts"].sort(key=lambda row:row["path"])
+    manifest=b"deribit-manifest-v1\n"+json.dumps(
+        document,separators=(",",":"),sort_keys=True
+    ).encode()
+    assert 1024*1024<len(manifest)<=MANIFEST_MAX_BYTES
+    archive.add(path,manifest)
+    model=M["project_archive"](archive,now=slot+timedelta(minutes=18))
+    assert model["latest_slot"]==slot.isoformat()
+    assert model["slots"][0]["artifact_count"]==10205
+    assert model["analytics"]["assets"]["BTC"]["markets"]["inverse"]["contracts"]==1
+
+
+def test_manifest_and_receipt_sizes_follow_publisher_contract():
+    from nasset.deribit_publish import MANIFEST_MAX_BYTES
+    marker=M["_marker"]
+    with pytest.raises(M["ArchiveIntegrityError"],match="manifest"):
+        marker(b"deribit-manifest-v1\n"+b"x"*MANIFEST_MAX_BYTES,
+               b"deribit-manifest-v1\n","manifest")
+    with pytest.raises(M["ArchiveIntegrityError"],match="receipt"):
+        marker(b"deribit-slot-v1\n"+b"x"*(16*1024),
+               b"deribit-slot-v1\n","receipt")

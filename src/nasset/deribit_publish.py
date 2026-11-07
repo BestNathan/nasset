@@ -32,6 +32,8 @@ _MANIFEST_PATH = re.compile(
 )
 _MANIFEST_PREFIX = b"deribit-manifest-v1\n"
 _MANIFEST_MAX_BYTES = 16 * 1024 * 1024
+# Public bound shared with the read-only Pages consumer of this manifest contract.
+MANIFEST_MAX_BYTES = _MANIFEST_MAX_BYTES
 # Avoid one POST /git/blobs for each of thousands of historical event keys.
 # Git Trees support inline UTF-8 content for blobs. Build small tree batches,
 # and move the ref only after every batch succeeds.
