@@ -24,12 +24,24 @@
     <section class="quant-heading">
       <div class="quant-intro">
         <div class="eyebrow">DERIVATIVES INTELLIGENCE / QUANTITATIVE RESEARCH</div>
-        <h1>Volatility <span>&amp; Convexity.</span></h1>
-        <p>隐含波动率结构、跨期限偏斜、二阶希腊字母与期权未平仓风险分布。</p>
+        <h1 id="quant-research-title">Options <span>&amp; Volatility.</span></h1>
+        <p id="quant-research-description">隐含波动率、偏斜、期权风险敞口及上市合约。</p>
       </div>
       <div class="quant-asof" id="quant-asof" aria-live="polite">
         <span>SNAPSHOT / UTC</span><strong>读取中…</strong>
       </div>
+    </section>
+
+    <section class="quant-product-selector" aria-label="衍生品产品分类">
+      <div class="quant-product-buttons" role="group" aria-label="选择期权或期货">
+        <button type="button" data-product="options" class="active" aria-pressed="true">
+          <strong>期权 <span>OPTIONS</span></strong><small>IV / Greeks / OI / 合约链</small>
+        </button>
+        <button type="button" data-product="futures" aria-pressed="false">
+          <strong>期货 <span>FUTURES</span></strong><small>期限结构 / 基差 / 合约</small>
+        </button>
+      </div>
+      <p id="quant-product-note" class="quant-product-note" aria-live="polite">请选择产品类型，再按标的及结算类型筛选。</p>
     </section>
 
     <div class="quant-commandbar">
@@ -39,22 +51,21 @@
         <button type="button" data-asset="PAXG" aria-pressed="false">PAXG</button>
       </div>
       <span class="quant-control-separator"></span>
-      <div id="quant-family-switch" class="quant-family-switch" role="group" aria-label="期权市场">
+      <div id="quant-family-switch" class="quant-family-switch" role="group" aria-label="产品结算类型">
         <button type="button" class="active" data-family="inverse" aria-pressed="true">Coin-margined</button>
         <button type="button" data-family="linear" aria-pressed="false">USDC-linear</button>
       </div>
-      <div class="quant-command-hint">MARK IV <span>·</span> BLACK-76 DERIVED GREEKS</div>
+      <div id="quant-command-hint" class="quant-command-hint">MARK IV <span>·</span> BLACK-76 DERIVED GREEKS</div>
     </div>
 
     <section id="quant-kpis" class="quant-kpis" aria-label="市场核心指标">
       <div class="quant-loading">正在计算隐含波动率与风险敏感度…</div>
     </section>
 
-    <nav class="quant-tabs" aria-label="研究维度">
+    <nav id="quant-tabs" class="quant-tabs" aria-label="期权研究维度">
       <button type="button" data-tab="surface" class="active" aria-selected="true"><span>01</span> 波动率曲面</button>
       <button type="button" data-tab="risk" aria-selected="false"><span>02</span> 风险敞口 / Greeks</button>
-      <button type="button" data-tab="futures" aria-selected="false"><span>03</span> 期货期限结构</button>
-      <button type="button" data-tab="options" aria-selected="false"><span>04</span> 期权合约</button>
+      <button type="button" data-tab="options" aria-selected="false"><span>03</span> 期权合约</button>
     </nav>
     <div id="quant-content" class="quant-content" aria-live="polite">
       <div class="quant-loading">正在加载研究结果…</div>

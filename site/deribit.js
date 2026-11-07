@@ -3,7 +3,7 @@
 /* Mathematical inputs are the offline-verified, versioned Pages JSON projection. */
 const $ = id => document.getElementById(id);
 const state = {
-  data: null, asset: "BTC", family: "inverse", tab: "surface",
+  data: null, asset: "BTC", product: "options", family: "inverse", tab: "surface", optionTab: "surface",
   selectedExpiry: null, optionSide: "all", optionTenor: "all",
   optionSearch: "", optionSort: "oi", optionPage: 0,
 };
@@ -114,28 +114,85 @@ function renderKpis(){
   $("quant-kpis").innerHTML=cards.map(row=>kpi(...row)).join("");
 }
 
+const OPTION_TABS=["surface","risk","options"];
+function optionFamilies(){
+  const markets=assetModel()?.markets || {};
+  return ["inverse","linear"].filter(f=>Boolean(markets[f]));
+}
+function futuresFamilies(){
+  const a=assetModel();
+  return ["inverse","linear"].filter(f=>
+    (a?.futures||[]).some(row=>row.family===f) ||
+    (a?.futures_surface?.[f]||[]).length>0);
+}
+function availableFamilies(){
+  return state.product==="options"?optionFamilies():futuresFamilies();
+}
 function chooseProduct(){
-  // PAXG currently has USDC-settled futures but no option market.
-  if(state.asset==="PAXG"){state.family="linear";return;}
-  const a=assetModel(),available=a?.markets || {};
-  if(!available[state.family]){
-    state.family=available.inverse?"inverse":available.linear?"linear":"inverse";
+  // Never render non-existent PAXG option IV or model Greeks.
+  if(state.product==="options"&&!optionFamilies().length){
+    state.product="futures";state.tab="futures";
   }
+  if(state.product==="options"&&!OPTION_TABS.includes(state.tab)){
+    state.tab=OPTION_TABS.includes(state.optionTab)?state.optionTab:"surface";
+  }
+  if(state.product==="futures")state.tab="futures";
+  const available=availableFamilies();
+  if(!available.includes(state.family)){
+    state.family=available.includes("inverse")?"inverse":available[0]||"inverse";
+  }
+}
+function renderFuturesKpis(){
+  const a=assetModel();
+  const rows=(a?.futures||[]).filter(f=>f.family===state.family);
+  const quoted=rows.filter(r=>finite(r.days)&&Number(r.days)>=1&&finite(r.annualized_basis_pct))
+    .sort((x,y)=>Number(x.days)-Number(y.days));
+  const observations=a?.futures_surface?.[state.family]||[];
+  const latest=observations.at(-1)?.nodes?.["90"];
+  const cards=[
+    ["参考指数",finite(a?.reference_price)?"$"+money(a.reference_price,2):"—","SPOT","标的指数参考，非期货成交价"],
+    ["上市期货 / 永续",int(rows.length),"CONTRACTS","当前结算结构的合约"],
+    ["可比到期合约",int(quoted.length),"MATURITIES","剩余至少1天且具备可比基差"],
+    ["近月年化基差",quoted.length?signed(quoted[0].annualized_basis_pct,2)+"%":"—","FRONT","最近有效到期合约"],
+    ["90D 年化基差",finite(latest)?signed(latest,2)+"%":"—","90D","最后可用观测的90天节点"],
+    ["期限观测时段",int(observations.length),"SLOTS","已验证的真实采集时段"],
+  ];
+  $("quant-kpis").innerHTML=cards.map(row=>kpi(...row)).join("");
 }
 function syncControls(){
   $("quant-asof").innerHTML='<span>SNAPSHOT / UTC</span><strong>'+esc(ts(state.data?.latest_slot))+'</strong>';
   document.querySelectorAll("[data-asset]").forEach(b=>{
     const active=b.dataset.asset===state.asset;b.classList.toggle("active",active);b.setAttribute("aria-pressed",String(active));
   });
-  $("quant-family-switch").hidden=state.asset==="PAXG";
+  const opts=optionFamilies(),families=availableFamilies();
+  document.querySelectorAll("[data-product]").forEach(b=>{
+    const active=b.dataset.product===state.product;
+    b.classList.toggle("active",active);b.setAttribute("aria-pressed",String(active));
+    b.disabled=b.dataset.product==="options"&&!opts.length;
+  });
+  $("quant-product-note").textContent=!opts.length
+    ? state.asset+" 当前没有可验证的 Deribit 期权市场，已切换到期货研究。"
+    : state.product==="options"
+      ? "期权研究 · 隐含波动率、合约与模型风险（不代表做市商净持仓）。"
+      : "期货研究 · 永续与交割合约、期限结构及可比年化基差。";
+  $("quant-research-title").innerHTML=state.product==="options"
+    ?"Options <span>&amp; Volatility.</span>":"Futures <span>&amp; Basis.</span>";
+  $("quant-research-description").textContent=state.product==="options"
+    ?"隐含波动率、偏斜、期权风险敞口及上市合约。"
+    :"期货期限结构、年化基差与永续及交割合约明细。";
+  $("quant-family-switch").hidden=families.length<=1;
   document.querySelectorAll("[data-family]").forEach(b=>{
     const active=b.dataset.family===state.family;b.classList.toggle("active",active);b.setAttribute("aria-pressed",String(active));
-    b.disabled=!assetModel()?.markets?.[b.dataset.family];
+    b.disabled=!families.includes(b.dataset.family);
   });
+  $("quant-command-hint").innerHTML=state.product==="options"
+    ?"MARK IV <span>·</span> BLACK-76 DERIVED GREEKS"
+    :"FUTURES <span>·</span> ANNUALIZED BASIS";
+  $("quant-tabs").hidden=state.product!=="options";
   document.querySelectorAll("[data-tab]").forEach(b=>{
     const active=b.dataset.tab===state.tab;b.classList.toggle("active",active);b.setAttribute("aria-selected",String(active));
   });
-  renderKpis();
+  if(state.product==="options")renderKpis();else renderFuturesKpis();
 }
 
 function sectionHead(kicker,title,subtitle,tag=""){
@@ -421,22 +478,30 @@ function optionsView(){
 function render(){
   if(!state.data)return;
   chooseProduct();syncControls();
-  const html=state.tab==="surface"?surfaceView():state.tab==="risk"?riskView():
-    state.tab==="futures"?futuresView():optionsView();
+  const html=state.product==="futures"?futuresView():
+    state.tab==="surface"?surfaceView():state.tab==="risk"?riskView():optionsView();
   $("quant-content").innerHTML=html;
 }
 function bindEvents(){
   document.body.addEventListener("click",ev=>{
+    const product=ev.target.closest("[data-product]");
+    if(product&&!product.disabled){
+      state.product=product.dataset.product;
+      state.tab=state.product==="options"?state.optionTab:"futures";
+      state.family="inverse";state.selectedExpiry=null;state.optionPage=0;
+      render();return;
+    }
     const asset=ev.target.closest("[data-asset]");
     if(asset){state.asset=asset.dataset.asset;state.selectedExpiry=null;state.optionPage=0;
       state.family=state.asset==="PAXG"?"linear":"inverse";
-      if(state.asset==="PAXG")state.tab="futures";
-      else if(state.tab==="futures")state.tab="surface";
       render();return;}
     const fam=ev.target.closest("[data-family]");
-    if(fam&&!fam.disabled){state.family=fam.dataset.family;state.selectedExpiry=null;state.optionPage=0;render();return;}
+    if(fam&&!fam.disabled&&availableFamilies().includes(fam.dataset.family)){
+      state.family=fam.dataset.family;state.selectedExpiry=null;state.optionPage=0;render();return;}
     const tab=ev.target.closest("[data-tab]");
-    if(tab){state.tab=tab.dataset.tab;render();return;}
+    if(tab&&state.product==="options"&&OPTION_TABS.includes(tab.dataset.tab)){
+      state.tab=tab.dataset.tab;state.optionTab=tab.dataset.tab;render();return;
+    }
     const expiry=ev.target.closest("[data-surface-expiry]");
     if(expiry){state.selectedExpiry=expiry.dataset.surfaceExpiry;render();return;}
     const page=ev.target.closest("[data-page]");
