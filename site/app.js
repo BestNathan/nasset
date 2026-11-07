@@ -51,8 +51,9 @@ function renderSummary() {
 }
 
 function summaryCard(label, value, sub) {
-  return '<div class="card"><div class="label">' + label + '</div><div class="value">' +
-    value + '</div><div class="sub">' + sub + '</div></div>';
+  const body='<div class="label">' + attr(label) + '</div><div class="value">' +
+    attr(value) + '</div><div class="sub">' + attr(sub) + '</div>';
+  return NassetMetricGuide.wrap(label,body,"card");
 }
 
 function renderRiskLadder() {
@@ -248,8 +249,9 @@ function renderDetail() {
 }
 
 function metric(label, value, klass) {
-  return '<div class="metric"><div class="label">' + label + '</div><div class="num ' +
-    (klass || "") + '">' + value + '</div></div>';
+  const body='<div class="label">' + attr(label) + '</div><div class="num ' +
+    (klass || "") + '">' + attr(value) + '</div>';
+  return NassetMetricGuide.wrap(label,body,"metric");
 }
 
 function renderOptionGuide(asset) {
@@ -320,19 +322,21 @@ function renderBest(best) {
     ? Math.round(best.dte) + ' DTE · ' + (Number(best.delta_abs) * 100).toFixed(1) + 'Δ · strike ' + money(best.strike)
     : "measured distribution income";
   return '<div class="best"><div><div class="label">Current risk-adjusted choice</div><div class="big">' +
-    best.strategy_name + '</div><div class="muted">' + detail +
-    '</div></div><div><div class="label">Annualized cash yield</div><div class="big"><strong>' +
-    pct(best.annualized_cash_yield_pct) + '</strong></div></div></div>';
+    attr(best.strategy_name) + '</div><div class="muted">' + attr(detail) +
+    '</div></div>' + NassetMetricGuide.wrap("Annualized cash yield",
+    '<div class="label">Annualized cash yield</div><div class="big"><strong>' +
+    pct(best.annualized_cash_yield_pct) + '</strong></div>',"best-cashflow-metric") + '</div>';
 }
 
 function renderStrategy(strategy) {
   if (strategy.kind === "income") {
     const basis = strategy.yield_basis || "historical cash distributions";
     const source = strategy.source ? " · " + strategy.source : "";
-    return '<h3 class="section-title">' + strategy.name +
-      '</h3><div class="card"><div class="label">Annualized cash yield / APR</div><div class="value">' +
+    return '<h3 class="section-title">' + attr(strategy.name) +
+      '</h3>'+NassetMetricGuide.wrap("Annualized cash yield / APR",
+      '<div class="label">Annualized cash yield / APR</div><div class="value">' +
       pct(strategy.annualized_yield_pct) + '</div><div class="sub">' +
-      basis + source + '</div></div>';
+      attr(basis + source) + '</div>',"card");
   }
 
   const matrix = strategy.matrix;
