@@ -19,7 +19,7 @@ from pathlib import Path
 import pyarrow.parquet as pq
 import requests
 
-from nasset.deribit_publish import git_blob_sha
+from nasset.deribit_publish import git_blob_sha, MANIFEST_MAX_BYTES
 from nasset.deribit_analytics import derive_analytics
 
 RECEIPT_PREFIX = b"deribit-slot-v1\n"
@@ -79,7 +79,11 @@ class GitHubReader:
 
 
 def _marker(raw: bytes, prefix: bytes, name: str) -> dict:
-    if not raw.startswith(prefix) or len(raw) > 1024 * 1024:
+    # The publisher permits up to 16 MiB: daily native event-key inventories
+    # regularly exceed 1 MiB even though hourly-only manifests are tiny.
+    # Keep the receipt bound narrow, but share the manifest bound with publisher.
+    max_size = MANIFEST_MAX_BYTES if name == "manifest" else 16 * 1024
+    if not raw.startswith(prefix) or len(raw) > max_size:
         raise ArchiveIntegrityError("invalid " + name + " marker")
     try:
         doc = json.loads(raw[len(prefix):])
