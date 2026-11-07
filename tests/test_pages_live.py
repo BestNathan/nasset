@@ -45,7 +45,7 @@ def test_fingerprinted_asset_urls_are_deterministic(tmp_path):
     assert '<script data-nasset-deribit-inline-app>' in first
     assert "deribit.js\" defer" not in first
     assert "</script><script>alert" not in first
-    assert r"\\u003c/script\\u003e" in first
+    assert r"\u003c/script\u003e" in first
     STAMP(tmp_path)
     assert page.read_text(encoding="utf-8") == first
 
