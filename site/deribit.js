@@ -40,7 +40,9 @@ const latestChain = () => (state.data?.latest?.option_chain || []).filter(r=>
     ["USDC","USDT","USD"].includes(r.settlement_currency)));
 const methodPill = label => '<span class="quant-pill">'+esc(label)+'</span>';
 const panelTitle = (title,detail="") => '<div class="quant-panel-title"><h3>'+esc(title)+'</h3>'+
-  (detail?'<span>'+esc(detail)+'</span>':"")+'</div>';
+  (detail?'<span>'+esc(detail)+'</span>':"")+'</div>'+
+  (NassetMetricGuide.resolve(title)?NassetMetricGuide.wrap(title,
+    '<span class="quant-panel-how">公式、口径与解读</span>',"quant-panel-method"):"");
 const empty = (text) => '<div class="quant-placeholder">'+esc(text)+'</div>';
 const chartTag = (content,label) => '<svg viewBox="0 0 740 250" class="quant-chart" role="img" aria-label="'+esc(label)+'">'+content+'</svg>';
 
@@ -86,9 +88,17 @@ function surfacePoint(expiry,column) {
 }
 
 function kpi(label,value,tag,note,klass="") {
-  return '<article class="quant-kpi"><div class="label"><span>'+esc(label)+
+  const compact='<div class="label"><span>'+esc(label)+
     '</span><span class="tag">'+esc(tag)+'</span></div><div class="number '+klass+'">'+
-    esc(value)+'</div><div class="note">'+esc(note)+'</div></article>';
+    esc(value)+'</div><div class="note">'+esc(note)+'</div>';
+  return NassetMetricGuide.wrap(label,compact,"quant-kpi");
+}
+function metricClusters(groups) {
+  return groups.map(([title,explanation,rows])=>
+    '<section class="quant-metric-cluster"><div class="quant-metric-cluster-head"><strong>'+
+    esc(title)+'</strong><span>'+esc(explanation)+'</span></div>'+
+    '<div class="quant-metric-cluster-cards">'+rows.map(row=>kpi(...row)).join("")+'</div></section>'
+  ).join("");
 }
 
 function renderKpis(){
@@ -111,7 +121,13 @@ function renderKpis(){
     ["Options OI",notional===null?"—":"$"+compact(notional),"USD NOTIONAL","公示 OI 估计名义敞口"],
     ["Gross Gamma / 1%",finite(metrics.gamma_1pct_usd)?"$"+compact(metrics.gamma_1pct_usd):"—","MODEL","OI 加权美元 Delta 敏感度"],
   ];
-  $("quant-kpis").innerHTML=cards.map(row=>kpi(...row)).join("");
+  $("quant-kpis").innerHTML=state.asset==="PAXG"
+    ? metricClusters([["上市覆盖","当前有效上市市场",cards.slice(0,3)],["期货指标","基差与衍生敏感度",cards.slice(3)]])
+    : metricClusters([
+      ["波动率水平","价格隐含的波动规模", [cards[0],cards[3]]],
+      ["曲面与偏斜","看涨 / 看跌翼的相对定价",[cards[1],cards[2]]],
+      ["持仓与凸性","公开 OI 的模型风险尺度",[cards[4],cards[5]]],
+    ]);
 }
 
 const OPTION_TABS=["surface","risk","options"];
@@ -157,7 +173,10 @@ function renderFuturesKpis(){
     ["90D 年化基差",finite(latest)?signed(latest,2)+"%":"—","90D","最后可用观测的90天节点"],
     ["期限观测时段",int(observations.length),"SLOTS","已验证的真实采集时段"],
   ];
-  $("quant-kpis").innerHTML=cards.map(row=>kpi(...row)).join("");
+  $("quant-kpis").innerHTML=metricClusters([
+    ["价格与合约","真实参考指数和上市覆盖",cards.slice(0,3)],
+    ["期限与基差","不同期限的年化升贴水",cards.slice(3)],
+  ]);
 }
 function syncControls(){
   $("quant-asof").innerHTML='<span>SNAPSHOT / UTC</span><strong>'+esc(ts(state.data?.latest_slot))+'</strong>';
@@ -275,8 +294,9 @@ function surfaceView(){
 }
 
 function riskNumber(label,context,value){
-  return '<div class="quant-risk-stat"><span>'+esc(label)+'</span><strong>'+esc(value)+
-    '</strong><small>'+esc(context)+'</small></div>';
+  const compact='<span>'+esc(label)+'</span><strong>'+esc(value)+
+    '</strong><small>'+esc(context)+'</small>';
+  return NassetMetricGuide.wrap(label,compact,"quant-risk-stat");
 }
 function gammaStrikes(risk){
   const rows=(risk?.strikes||[]).slice(0,18);
@@ -458,6 +478,10 @@ function chainTable(){
 }
 function optionsView(){
   const m=market();if(!m)return empty("当前没有已归档期权链。PAXG 不提供可用 Deribit 期权。");
+  const metricLegend='<div class="quant-metric-legend" aria-label="期权合约指标定义">'+
+    ["Mark IV","Delta","Gamma","Vanna","Volga","Charm","OI"].map(name=>
+      NassetMetricGuide.wrap(name,'<strong>'+esc(name)+'</strong>',"quant-metric-chip")
+    ).join("")+'</div>';
   const menus='<div class="quant-table-controls"><label>方向<select data-filter="side">'+
     [["all","全部"],["call","Call"],["put","Put"]].map(([key,label])=>
       '<option value="'+key+'" '+(state.optionSide===key?"selected":"")+'>'+label+'</option>').join("")+
@@ -473,7 +497,7 @@ function optionsView(){
     "逐合约模型敏感度用于核对曲面、期限集中度与聚合风险结果。",
     "MODEL Δ / Γ / VANNA / VOLGA / CHARM")+
     '<div class="quant-muted-warning">带 * 的 Greeks 均由 Black-76 从 Mark IV 推导，单位为单个标的的模型敏感度，非 Deribit 直接推送，未乘未平仓量。</div>'+
-    '<article class="quant-panel">'+menus+'<div id="quant-chain-table">'+chainTable()+'</div></article>';
+    '<article class="quant-panel">'+menus+metricLegend+'<div id="quant-chain-table">'+chainTable()+'</div></article>';
 }
 function render(){
   if(!state.data)return;

@@ -16,7 +16,9 @@ assert.equal(data.latest_slot,expected.latest_slot);
 assert.equal(data.latest.option_chain.length,expected.latest.option_chain.length);
 assert.equal(Object.keys(data.analytics.assets.BTC.markets.inverse.greeks_by_instrument).length,
   Object.keys(expected.analytics.assets.BTC.markets.inverse.greeks_by_instrument).length);
+assert.ok(html.includes('<script data-nasset-metric-guide>'));
 assert.ok(html.includes('<script data-nasset-deribit-inline-app>'));
+assert.ok(html.indexOf('data-nasset-metric-guide')<html.indexOf('data-nasset-deribit-inline-app'));
 assert.ok(html.includes('const embedded=$("deribit-dashboard-bootstrap")'));
 assert.ok(!/<script src="\.\/deribit\.js/.test(html),"no external JS dependency");
 console.log("Standalone production HTML includes",data.latest.option_chain.length,

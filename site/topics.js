@@ -14,11 +14,12 @@ const cny = value => valid(value) ? "¥" + Number(value).toLocaleString("zh-CN",
 const decimal = (value, precision=4) => valid(value) ? Number(value).toFixed(precision) : "—";
 const data = row => state.stocks[row?.symbol] || null;
 const stats = row => data(row)?.statistics || {};
-const metric = (name, value, note="") => '<div class="metric"><div class="label">' +
-  escapeHtml(name) + '</div><div class="num">' + escapeHtml(value) +
-  '</div>' + (note ? '<small>' + escapeHtml(note) + '</small>' : '') + '</div>';
-const card = (label, value, sub) => '<div class="card"><div class="label">' + label +
-  '</div><div class="value">' + value + '</div><div class="sub">' + sub + '</div></div>';
+const metric = (name, value, note="") => NassetMetricGuide.wrap(name,
+  '<div class="label">' + escapeHtml(name) + '</div><div class="num">' + escapeHtml(value) +
+  '</div>' + (note ? '<small>' + escapeHtml(note) + '</small>' : ''),"metric");
+const card = (label, value, sub) => NassetMetricGuide.wrap(label,
+  '<div class="label">' + escapeHtml(label) + '</div><div class="value">' + escapeHtml(value) +
+  '</div><div class="sub">' + escapeHtml(sub) + '</div>',"card");
 
 function filtered() {
   const q = state.search.trim().toLowerCase();

@@ -24,6 +24,10 @@ jobs:
       - run: pytest -q
       - name: Check static Deribit viewer syntax
         run: node --check site/deribit.js
+      - name: Verify shared metric formulas and accessible disclosures
+        run: |
+          node --check site/metric-guide.js
+          node tests/metric_guide_smoke.cjs
       - name: Verify stalled data fetch terminates with actionable error
         run: node tests/deribit_loading_smoke.cjs
       - name: Compute model surfaces from actual verified market-data archive

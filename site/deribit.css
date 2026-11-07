@@ -148,3 +148,32 @@
 .quant-tabs[hidden],.quant-family-switch[hidden]{display:none!important}
 @media(max-width:800px){.quant-product-selector{flex-direction:column;align-items:stretch;gap:10px}.quant-product-buttons{width:100%}.quant-product-buttons button{flex:1;min-width:0;padding:12px 11px}.quant-product-note{max-width:none}}
 @media(max-width:480px){.quant-product-buttons button strong{font-size:14px}.quant-product-buttons button strong span{font-size:9px}.quant-product-buttons button small{font-size:9px}}
+
+
+/* Derivative metric clusters: price level / skew / public positioning are distinct. */
+.quant-kpis{grid-template-columns:repeat(3,minmax(0,1fr));align-items:start}
+.quant-metric-cluster{min-width:0}
+.quant-metric-cluster-head{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:5px 12px;margin:0 0 9px}
+.quant-metric-cluster-head strong{color:#d5e1d5;font-size:12px}
+.quant-metric-cluster-head span{color:#7e8e80;font-size:10px}
+.quant-metric-cluster-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.quant-kpi .metric-expand-indicator,.quant-risk-stat .metric-expand-indicator{color:#91a28f;font-size:10px;letter-spacing:0}
+.quant-kpi[open],.quant-risk-stat[open]{border-color:#526c38}
+.quant-kpi .metric-explain-row strong,.quant-risk-stat .metric-explain-row strong{color:#d4ff5f}
+.quant-kpi .metric-explain-row p,.quant-risk-stat .metric-explain-row p{color:#b0bbb1;font-size:11px;line-height:1.65}
+.quant-risk-stat .metric-explain{margin-top:11px}
+@media(max-width:1220px){.quant-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:720px){.quant-kpis{grid-template-columns:1fr}.quant-metric-cluster-head{align-items:flex-start}}
+
+/* Explanations for chart titles and model Greek names (inside dense tables). */
+.quant-panel-method{margin:-6px 0 14px;border-bottom:1px solid #2c342a;padding-bottom:9px}
+.quant-panel-method>summary{display:inline-block;color:#95ab8c;font-size:10px}
+.quant-panel-method .metric-expand-indicator{display:inline-block;margin:0 0 0 9px}
+.quant-panel-how{font-size:10px;font-weight:550;color:#a7b9a1}
+.quant-metric-legend{display:flex;flex-wrap:wrap;gap:7px;margin:12px 0}
+.quant-metric-chip{flex:0 1 145px;border:1px solid #303e30;border-radius:9px;background:#161c17;padding:9px 10px}
+.quant-metric-chip>summary{font-size:11px;color:#d4e6ce}
+.quant-metric-chip .metric-expand-indicator{font-size:9px;color:#8ca28a;margin-top:5px}
+.quant-metric-chip[open]{flex-basis:260px}
+.quant-metric-chip .metric-explain-row p{font-size:10px;color:#a5b4a6}
+@media(max-width:720px){.quant-metric-chip{flex-basis:calc(50% - 4px)}.quant-metric-chip[open]{flex-basis:100%}}

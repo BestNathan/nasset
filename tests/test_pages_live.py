@@ -20,10 +20,10 @@ def test_fingerprinted_asset_urls_are_deterministic(tmp_path):
     page = tmp_path / "deribit.html"
     page.write_text(
         '<link href="./styles.css"><link href="./deribit.css">'
-        '<script src="./deribit.js" defer></script>',
+        '<script src="./metric-guide.js"></script><script src="./deribit.js" defer></script>',
         encoding="utf-8",
     )
-    for name in ("styles.css", "deribit.css", "deribit.js"):
+    for name in ("styles.css", "deribit.css", "deribit.js", "metric-guide.js"):
         (tmp_path / name).write_text(name, encoding="utf-8")
     (tmp_path / "data").mkdir()
     snapshot = {
@@ -42,6 +42,7 @@ def test_fingerprinted_asset_urls_are_deterministic(tmp_path):
         digest = hashlib.sha256(name.encode()).hexdigest()[:12]
         assert f"./{name}?v={digest}" in first
     assert '<script id="deribit-dashboard-bootstrap" type="application/json">' in first
+    assert '<script data-nasset-metric-guide>' in first
     assert '<script data-nasset-deribit-inline-app>' in first
     assert "deribit.js\" defer" not in first
     assert "</script><script>alert" not in first

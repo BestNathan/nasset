@@ -32,12 +32,15 @@ const context = {
   fetch:async url=>({ok:true,json:async()=>url.includes("universe")?universe:payload}),
   location:{search:""},window:{alert:()=>{}},URLSearchParams,console
 };
-vm.runInNewContext(fs.readFileSync("site/topics.js","utf8"),context,{filename:"site/topics.js"});
+const sandbox=vm.createContext(context);
+vm.runInContext(fs.readFileSync("site/metric-guide.js","utf8"),sandbox,{filename:"site/metric-guide.js"});
+vm.runInContext(fs.readFileSync("site/topics.js","utf8"),sandbox,{filename:"site/topics.js"});
 setImmediate(()=>{
   assert.match(el("topic-detail").innerHTML,/工商银行/);
   assert.match(el("topic-detail").innerHTML,/100万元买入持有/);
   assert.match(el("topic-detail").innerHTML,/历史年度|逐财年/);
   assert.match(el("topic-stats").innerHTML,/A股研究池/);
+  assert.match(el("topic-stats").innerHTML,/计算公式 \/ 口径/);
   assert.match(el("topic-nav").innerHTML,/中国移动/);
   console.log("Topic UI fixture render: PASS");
 });

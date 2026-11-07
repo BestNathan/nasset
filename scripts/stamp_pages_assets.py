@@ -15,19 +15,23 @@ ROOT = Path(__file__).resolve().parents[1] / "site"
 START = "<!-- nasset-deribit-inline-start -->"
 END = "<!-- nasset-deribit-inline-end -->"
 EXTERNAL_SCRIPT = '<script src="./deribit.js" defer></script>'
+METRIC_SCRIPT = '<script src="./metric-guide.js"></script>'
 
 
 def stamp(root: Path = ROOT) -> None:
     page = root / "deribit.html"
     html = page.read_text(encoding="utf-8")
+    placeholder = "__NASSET_DERIBIT_BUNDLE__"
     if START in html:
         before, remainder = html.split(START, 1)
         if END not in remainder:
             raise ValueError("incomplete Deribit inline bundle")
         _, after = remainder.split(END, 1)
-        html = before + EXTERNAL_SCRIPT + after
-    if html.count(EXTERNAL_SCRIPT) != 1:
-        raise ValueError("expected exactly one unbundled Deribit script")
+        html = before + placeholder + after
+    else:
+        if html.count(EXTERNAL_SCRIPT) != 1 or html.count(METRIC_SCRIPT) != 1:
+            raise ValueError("expected one unbundled Deribit app and metric guide")
+        html = html.replace(METRIC_SCRIPT, "").replace(EXTERNAL_SCRIPT, placeholder)
 
     for name in ("styles.css", "deribit.css"):
         digest = hashlib.sha256((root / name).read_bytes()).hexdigest()[:12]
@@ -50,18 +54,21 @@ def stamp(root: Path = ROOT) -> None:
     inline_json = (inline_json.replace("&", "\\u0026")
                    .replace("<", "\\u003c").replace(">", "\\u003e"))
     script = (root / "deribit.js").read_text(encoding="utf-8")
-    if "</script" in script.lower():
+    metric_script = (root / "metric-guide.js").read_text(encoding="utf-8")
+    if "</script" in script.lower() or "</script" in metric_script.lower():
         raise ValueError("embedded JavaScript contains an HTML script terminator")
 
     bundle = (
         START + "\n"
         + '<script id="deribit-dashboard-bootstrap" type="application/json">\n'
         + inline_json + "\n</script>\n"
+        + '<script data-nasset-metric-guide>\n'
+        + metric_script + "\n</script>\n"
         + '<script data-nasset-deribit-inline-app>\n'
         + script + "\n</script>\n"
         + END
     )
-    html = html.replace(EXTERNAL_SCRIPT, bundle)
+    html = html.replace(placeholder, bundle)
     page.write_text(html, encoding="utf-8")
     print(
         "Deribit self-contained Pages bundle: "
