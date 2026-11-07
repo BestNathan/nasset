@@ -75,6 +75,9 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: python scripts/build_deribit_dashboard.py
 
+      - name: Fingerprint static Pages assets
+        run: python scripts/stamp_pages_assets.py
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
@@ -86,3 +89,8 @@ jobs:
       - name: Deploy Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Verify public Deribit data is actually available
+        env:
+          NASSET_PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: python scripts/check_deribit_pages_live.py --site-url "$NASSET_PAGE_URL"
