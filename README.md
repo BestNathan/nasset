@@ -55,6 +55,15 @@ This is not a universal probability-of-loss rating. Long-duration sovereign bond
 
 The asset registry is in `src/nasset/engine.py`.
 
+## Pages research navigation
+
+Pages is organized into [asset and cashflow research](site/index.html),
+[high-dividend equity research](site/topics.html), and
+[derivatives research](site/deribit.html). Each has a shared global navigation;
+within each domain, asset/company selection, analysis, comparison and
+methodology are separate levels. The rules and mount-point contract are in
+[Pages information architecture](docs/pages-information-architecture.md).
+
 ## Deribit archive data viewer on Pages
 
 A separate [Deribit Market Data](site/deribit.html) dashboard lives beside

@@ -43,10 +43,10 @@ function renderSummary() {
     : 0;
 
   document.getElementById("summary").innerHTML = [
-    summaryCard("Assets tracked", String(assets.length), "daily snapshots"),
-    summaryCard("Option matrices", String(optionAssets.length * 2), "covered call + cash-secured put"),
-    summaryCard("Mean cash yield", pct(avg), "cross-asset, not risk-adjusted"),
-    summaryCard("Highest selected yield", top ? pct(top.best_strategy.annualized_cash_yield_pct) : "—", top ? top.name : "no data")
+    summaryCard("跟踪资产", String(assets.length), "每日快照"),
+    summaryCard("期权矩阵", String(optionAssets.length * 2), "Covered Call / Cash-Secured Put"),
+    summaryCard("平均现金收益率", pct(avg), "跨资产平均，未做风险调整"),
+    summaryCard("最高策略收益率", top ? pct(top.best_strategy.annualized_cash_yield_pct) : "—", top ? top.name : "无数据")
   ].join("");
 }
 
@@ -77,7 +77,7 @@ function renderRiskLadder() {
 
   document.getElementById("riskLadder").innerHTML =
     '<div class="risk-intro"><div><div class="eyebrow">CASHFLOW RISK LADDER</div>' +
-    '<h2>Contractual cashflow → engineered yield</h2></div>' +
+    '<h2>四层现金流风险分类</h2></div>' +
     '<p>This is a conceptual progression in cashflow complexity and actively assumed risk, not a universal probability-of-loss rating. Duration, leverage and valuation can still make a lower layer volatile.</p></div>' +
     '<div class="risk-grid">' + html + '</div>';
 }
@@ -110,8 +110,8 @@ function renderYieldLadder() {
   }).join("");
 
   document.getElementById("yieldLadder").innerHTML =
-    '<div class="yield-head"><div><div class="eyebrow">CASHFLOW OPPORTUNITY SET</div><h2>Yield by risk layer</h2></div>' +
-    '<p>Cash yield is shown separately from principal movement. Click any row to open the asset view. Option overlays show the currently selected risk-adjusted matrix cell.</p></div>' +
+    '<div class="yield-head"><div><div class="eyebrow">CASHFLOW OPPORTUNITY SET</div><h2>资产收益与本金表现对比</h2></div>' +
+    '<p>现金收益与本金涨跌分开列示。点击任意资产可返回上方查看资产详情与策略。</p></div>' +
     '<div class="yield-table-wrap"><table class="yield-table"><thead><tr>' +
       '<th>Layer</th><th>Asset</th><th>Cash Yield</th><th>Asset Δ USD</th><th>Asset Δ Local</th><th>Total CAGR USD</th><th>Source</th>' +
     '</tr></thead><tbody>' + rows + '</tbody></table></div>';

@@ -50,3 +50,7 @@
 .topic-events{margin:20px 0 0;border:1px solid var(--line);padding:12px 14px;border-radius:12px;background:var(--panel)}
 .topic-events summary{cursor:pointer;color:var(--accent);font-size:12px;padding:5px}
 .topic-events .topic-table-scroll{margin-top:10px}
+
+/* Comparison section owns its heading; selected count is state, not a second title. */
+#company-compare .topic-compare{margin-top:0;border-top:0;padding-top:0}
+.topic-selection-count{font-size:12px;font-weight:600;color:var(--accent);margin:4px 0 14px}
