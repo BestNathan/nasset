@@ -164,3 +164,16 @@
 .quant-risk-stat .metric-explain{margin-top:11px}
 @media(max-width:1220px){.quant-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:720px){.quant-kpis{grid-template-columns:1fr}.quant-metric-cluster-head{align-items:flex-start}}
+
+/* Explanations for chart titles and model Greek names (inside dense tables). */
+.quant-panel-method{margin:-6px 0 14px;border-bottom:1px solid #2c342a;padding-bottom:9px}
+.quant-panel-method>summary{display:inline-block;color:#95ab8c;font-size:10px}
+.quant-panel-method .metric-expand-indicator{display:inline-block;margin:0 0 0 9px}
+.quant-panel-how{font-size:10px;font-weight:550;color:#a7b9a1}
+.quant-metric-legend{display:flex;flex-wrap:wrap;gap:7px;margin:12px 0}
+.quant-metric-chip{flex:0 1 145px;border:1px solid #303e30;border-radius:9px;background:#161c17;padding:9px 10px}
+.quant-metric-chip>summary{font-size:11px;color:#d4e6ce}
+.quant-metric-chip .metric-expand-indicator{font-size:9px;color:#8ca28a;margin-top:5px}
+.quant-metric-chip[open]{flex-basis:260px}
+.quant-metric-chip .metric-explain-row p{font-size:10px;color:#a5b4a6}
+@media(max-width:720px){.quant-metric-chip{flex-basis:calc(50% - 4px)}.quant-metric-chip[open]{flex-basis:100%}}
