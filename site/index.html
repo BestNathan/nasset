@@ -1,29 +1,51 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark light" />
-  <title>nasset — Asset Cashflow Observatory</title>
+  <title>资产与现金流 · nasset</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
   <main class="shell">
-    <header class="hero">
-      <div>
-        <div class="eyebrow">NASSET / DAILY OBSERVATORY</div>
-        <h1>Turn assets into cashflow.</h1>
-        <p>Mark-to-market value, measured cash yield, option income matrices and the current risk-adjusted strategy — refreshed daily.</p>
-      </div>
-      <div id="freshness" class="freshness"></div>
+    <header class="site-header">
+      <a class="site-brand" href="./index.html" aria-label="nasset 首页"><span class="site-mark" aria-hidden="true">n</span><strong>nasset</strong><span class="site-brand-caption">Research</span></a>
+      <nav class="site-nav" aria-label="全站主导航">
+        <a href="./index.html" class="active" aria-current="page">资产与现金流</a>
+        <a href="./topics.html">高股息研究</a>
+        <a href="./deribit.html">衍生品研究</a>
+      </nav>
+      <a class="site-repository" href="https://github.com/BestNathan/nasset" target="_blank" rel="noopener noreferrer">GitHub</a>
     </header>
-    <nav class="topic-entry"><a href="./topics.html">A股高股息专题 · 银行 / 电信 / 基础设施 →</a> <a href="./deribit.html">Deribit 市场数据 · 期权链 / 期货 / DVOL →</a></nav>
-    <section id="summary" class="summary-grid"></section>
-    <section id="riskLadder"></section>
-    <section id="yieldLadder"></section>
-    <section class="workspace">
-      <nav id="assetNav" class="asset-nav"></nav>
-      <article id="detail" class="detail"></article>
+    <header class="hero page-hero">
+      <div><div class="eyebrow">NASSET / CASHFLOW RESEARCH</div>
+        <h1>资产与现金流</h1>
+        <p>先看本金表现与真实现金流，再研究收益策略、横向比较及风险分类。期权矩阵在对应资产内查看。</p>
+      </div>
+      <div id="freshness" class="freshness" aria-live="polite"></div>
+    </header>
+    <section id="summary" class="summary-grid" aria-label="资产快照概览"></section>
+    <nav class="section-nav" aria-label="资产研究内容">
+      <a href="#asset-research" class="section-link">资产研究</a>
+      <a href="#asset-comparison" class="section-link">横向比较</a>
+      <a href="#risk-framework" class="section-link">分类与方法</a>
+    </nav>
+    <section id="asset-research" class="research-section" aria-label="资产研究">
+      <div class="research-heading"><div><div class="eyebrow">01 / ASSETS</div><h2>选择资产，深入分析</h2></div><p>按资产选择；股息、Staking 和期权等策略只在对应资产详情下展示。</p></div>
+      <div class="workspace">
+        <nav id="assetNav" class="asset-nav" aria-label="资产分类和选择"></nav>
+        <article id="detail" class="detail" aria-live="polite"></article>
+      </div>
+    </section>
+    <section id="asset-comparison" class="research-section" aria-label="跨资产比较">
+      <div id="yieldLadder"></div>
+    </section>
+    <section id="risk-framework" class="research-section" aria-label="风险分类及方法">
+      <details class="method-disclosure">
+        <summary><span><span class="eyebrow">03 / FRAMEWORK</span><strong>四层现金流风险分类</strong><small>现金流来源、资产子类别和风险复杂度</small></span><span class="disclosure-hint">展开查看</span></summary>
+        <div id="riskLadder"></div>
+      </details>
     </section>
     <footer>
       <span>Data is informational and can be delayed or incomplete. Annualized option premium is not a guaranteed return.</span>

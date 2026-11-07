@@ -11,10 +11,14 @@
 </head>
 <body>
   <main class="shell quant-shell">
-    <header class="quant-topbar">
-      <a class="quant-brand" href="./index.html"><span class="quant-mark">n</span><strong>nasset</strong><span>/</span> derivatives</a>
-      <nav aria-label="全站导航"><a href="./index.html">资产现金流</a><a href="./topics.html">高股息研究</a><a class="active" href="./deribit.html" aria-current="page">衍生品研究</a></nav>
-      <span class="quant-research-flag">RESEARCH TERMINAL <span aria-hidden="true">●</span></span>
+    <header class="site-header">
+      <a class="site-brand" href="./index.html" aria-label="nasset 首页"><span class="site-mark" aria-hidden="true">n</span><strong>nasset</strong><span class="site-brand-caption">Research</span></a>
+      <nav class="site-nav" aria-label="全站主导航">
+        <a href="./index.html">资产与现金流</a>
+        <a href="./topics.html">高股息研究</a>
+        <a href="./deribit.html" class="active" aria-current="page">衍生品研究</a>
+      </nav>
+      <a class="site-repository" href="https://github.com/BestNathan/nasset" target="_blank" rel="noopener noreferrer">GitHub</a>
     </header>
 
     <section class="quant-heading">
@@ -48,7 +52,7 @@
 
     <nav class="quant-tabs" aria-label="研究维度">
       <button type="button" data-tab="surface" class="active" aria-selected="true"><span>01</span> 波动率曲面</button>
-      <button type="button" data-tab="risk" aria-selected="false"><span>02</span> Convexity &amp; OI</button>
+      <button type="button" data-tab="risk" aria-selected="false"><span>02</span> 风险敞口 / Greeks</button>
       <button type="button" data-tab="futures" aria-selected="false"><span>03</span> 期货期限结构</button>
       <button type="button" data-tab="options" aria-selected="false"><span>04</span> 期权合约</button>
     </nav>
