@@ -6494,10 +6494,10 @@
       },
       {
         "date": "2026-11-07",
-        "current_asset_value_index": 116.1438,
-        "total_value_index": 116.1438,
-        "price_return_pct": 16.1438,
-        "annualized_cash_yield_pct": 9.361994,
+        "current_asset_value_index": 116.2105,
+        "total_value_index": 116.2105,
+        "price_return_pct": 16.2105,
+        "annualized_cash_yield_pct": 9.431932,
         "best_strategy": "Cash-Secured Put"
       }
     ],
@@ -6744,10 +6744,10 @@
       },
       {
         "date": "2026-11-07",
-        "current_asset_value_index": 116.0202,
-        "total_value_index": 116.0202,
-        "price_return_pct": 16.0202,
-        "annualized_cash_yield_pct": 5.704482,
+        "current_asset_value_index": 116.0176,
+        "total_value_index": 116.0176,
+        "price_return_pct": 16.0176,
+        "annualized_cash_yield_pct": 5.455881,
         "best_strategy": "Cash-Secured Put"
       }
     ],
