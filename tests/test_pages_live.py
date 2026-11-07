@@ -42,7 +42,7 @@ def test_public_data_check_rejects_missing_or_stale_snapshot(monkeypatch):
     delivered = {
         **expected,
         "version": 1,
-        "analytics": {"version": 1, "assets": {"BTC": {}}},
+        "analytics": {"version": 1, "assets": {"BTC": {"markets": {}}}},
     }
     seen = []
 
