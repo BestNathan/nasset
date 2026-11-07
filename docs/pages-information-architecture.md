@@ -6,7 +6,7 @@ nasset has **three research domains**, not a single flat list of pages or data f
 | --- | --- | --- | --- |
 | Asset cashflow | `index.html` | What does an asset produce, and what happens to principal? | One asset → valuation / cashflow / income strategies → historical chart |
 | Dividend equities | `topics.html` | Which companies have distributed cash consistently? | Industry → company → actual fiscal-year distributions / risk → peer comparison |
-| Derivatives | `deribit.html` | What does the options/futures market imply about volatility and convexity? | Underlying / settlement family → analytical perspective (IV / OI Greeks / futures / contracts) |
+| Derivatives | `deribit.html` | What does the options/futures market imply about volatility and convexity? | Product (options / futures) → underlying / settlement family → product-specific analysis (options: IV / OI Greeks / chain; futures: basis curve / contracts) |
 
 ## Navigation contract
 
@@ -20,7 +20,7 @@ nasset has **three research domains**, not a single flat list of pages or data f
 
 - Assets: snapshot summary → selected asset details / strategies → cross-asset comparison → four-layer cashflow-risk model and methodology. `assetNav` is independently scrollable on desktop; clicking a row or asset selection scrolls to asset details.
 - Dividends: coverage summary → sector/search/sort and company detail → opt-in comparison of up to five companies → dividend accounting caveats. The methods note is expandable, not a preface occupying the main work area.
-- Derivatives: underlying/family selector → core analytics summary → IV surface, gross modeled sensitivities/OI, futures, and contracts in existing research tabs. Assumptions and risk boundaries remain available in the methods disclosure.
+- Derivatives: **options vs futures product domain** → underlying/family filter → relevant analytics. Options has IV surface, gross modeled sensitivities/OI and option chain; futures has basis term structure, real contract quotes and a product-specific KPI set. PAXG has futures only (no validated Deribit option chain); unsupported options cannot be selected. Assumptions and risk boundaries remain available in the methods disclosure.
 
 Cross-asset **cash yield** is not the same as total return; modelled gross OI Greeks do not reveal dealer net positioning. Research wording must preserve these distinctions. Keep real data timestamps visible, preserve nulls, and do not introduce fabricated prices, yields or predictions.
 

@@ -47,5 +47,10 @@ def test_research_sections_prioritize_decision_workflow():
     derivatives = (ROOT / 'site' / 'deribit.html').read_text()
     for asset in ('BTC', 'ETH', 'PAXG'):
         assert f'data-asset="{asset}"' in derivatives
-    for tab in ('surface', 'risk', 'futures', 'options'):
+    for product in ('options', 'futures'):
+        assert f'data-product="{product}"' in derivatives
+    for tab in ('surface', 'risk', 'options'):
         assert f'data-tab="{tab}"' in derivatives
+    assert 'data-tab="futures"' not in derivatives
+    assert derivatives.index('data-product="options"') < derivatives.index('data-asset="BTC"')
+    assert derivatives.index('data-product="futures"') < derivatives.index('data-asset="BTC"')

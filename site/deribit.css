@@ -11,7 +11,7 @@
 .quant-asof strong{font:600 14px ui-monospace,Menlo,monospace;color:#c6d1c8;white-space:nowrap}
 .quant-commandbar{display:flex;align-items:center;gap:16px;padding:11px 14px;background:#141714;border:1px solid #2b332b;border-radius:14px;min-height:61px;margin:0 0 18px}
 .quant-asset-switch,.quant-family-switch{display:flex;gap:5px;flex-wrap:wrap}
-.quant-asset-switch button,.quant-family-switch button,.quant-tabs button,.quant-tab-btn{border:0;background:transparent;font:inherit;cursor:pointer;transition:color .16s,border-color .16s,background .16s}
+.quant-asset-switch button,.quant-family-switch button,.quant-product-buttons button,.quant-tabs button,.quant-tab-btn{border:0;background:transparent;font:inherit;cursor:pointer;transition:color .16s,border-color .16s,background .16s}
 .quant-asset-switch button{padding:10px 17px;border-radius:8px;font:700 13px ui-monospace,Menlo,monospace;color:#aaaead}
 .quant-asset-switch button.active{color:#13190c;background:var(--accent)}
 .quant-family-switch button{padding:9px 12px;border-radius:8px;font-size:11px;color:#929b96}
@@ -111,7 +111,7 @@
 .quant-table-controls label{display:flex;flex-direction:column;gap:7px;font-size:11px;color:#98a297}
 .quant-table-controls select,.quant-table-controls input{border-radius:8px;border:1px solid #354137;background:#1b241b;color:#e9f0e7;padding:10px 11px;font:12px Inter,system-ui,sans-serif;min-width:122px}
 .quant-table-controls input{min-width:175px}
-.quant-table-controls select:focus-visible,.quant-table-controls input:focus-visible,.quant-topbar button:focus-visible,.quant-heatcell:focus-visible,.quant-commandbar button:focus-visible,.quant-tabs button:focus-visible{outline:2px solid #d4ff5f;outline-offset:2px}
+.quant-table-controls select:focus-visible,.quant-table-controls input:focus-visible,.quant-topbar button:focus-visible,.quant-heatcell:focus-visible,.quant-commandbar button:focus-visible,.quant-product-buttons button:focus-visible,.quant-tabs button:focus-visible{outline:2px solid #d4ff5f;outline-offset:2px}
 .quant-pagination{display:flex;justify-content:space-between;gap:18px;margin:14px 0 0;color:#899489;font-size:11px;align-items:center}
 .quant-pagination button{background:#202a20;border:1px solid #374437;color:#c9d7c3;border-radius:7px;font-size:11px;padding:8px 12px;cursor:pointer;margin-left:7px}
 .quant-pagination button:disabled{opacity:.3;cursor:not-allowed}
@@ -133,3 +133,18 @@
 @media(max-width:930px){.quant-grid,.quant-grid.equal{grid-template-columns:1fr}.quant-heading{align-items:start}.quant-heatmap th:first-child{min-width:90px}.quant-heatcell{min-width:73px}}
 @media(max-width:720px){.quant-shell{padding:16px 16px 40px}.quant-heading{flex-direction:column;gap:15px;padding:36px 0 23px}.quant-heading h1{font-size:clamp(36px,8vw,53px)}.quant-asof{align-items:flex-start}.quant-commandbar{align-items:flex-start;flex-wrap:wrap;gap:8px}.quant-control-separator{display:none}.quant-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.quant-tabs{gap:18px}.quant-tabs button{font-size:12px}.quant-method-grid{grid-template-columns:1fr}}
 @media(max-width:480px){.quant-kpi{padding:14px 12px}.quant-kpi .number{font-size:21px}.quant-grid .quant-panel{padding:14px}.quant-expiry-details{grid-template-columns:repeat(2,1fr)}.quant-risk-stats{gap:7px}.quant-gex-row{grid-template-columns:67px minmax(0,1fr) 77px}.quant-footer{flex-direction:column;align-items:flex-start;gap:9px}}
+
+/* Product type is the first navigation level; market filters and option analytics are nested below. */
+.quant-product-selector{display:flex;justify-content:space-between;align-items:center;gap:24px;margin:0 0 16px;padding:0 0 16px;border-bottom:1px solid #293329}
+.quant-product-buttons{display:flex;align-items:stretch;gap:8px;flex-shrink:0}
+.quant-product-buttons button{display:flex;flex-direction:column;align-items:flex-start;gap:5px;text-align:left;padding:12px 22px;border:1px solid #313b30;border-radius:12px;background:#151915;color:#a0aa9f}
+.quant-product-buttons button strong{font-size:16px;font-weight:720;color:#dce5d9}
+.quant-product-buttons button strong span{font:600 10px ui-monospace,Menlo,monospace;letter-spacing:.07em;color:#748075;margin-left:6px}
+.quant-product-buttons button small{font-size:10px;line-height:1.5;color:#768477}
+.quant-product-buttons button.active{background:#202c19;border-color:#75994d}
+.quant-product-buttons button.active strong{color:var(--accent)}
+.quant-product-buttons button:disabled{opacity:.37;cursor:not-allowed}
+.quant-product-note{max-width:405px;color:#879586;font-size:11px;line-height:1.65;margin:0}
+.quant-tabs[hidden],.quant-family-switch[hidden]{display:none!important}
+@media(max-width:800px){.quant-product-selector{flex-direction:column;align-items:stretch;gap:10px}.quant-product-buttons{width:100%}.quant-product-buttons button{flex:1;min-width:0;padding:12px 11px}.quant-product-note{max-width:none}}
+@media(max-width:480px){.quant-product-buttons button strong{font-size:14px}.quant-product-buttons button strong span{font-size:9px}.quant-product-buttons button small{font-size:9px}}
