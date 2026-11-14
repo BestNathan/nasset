@@ -391,7 +391,9 @@ class GitHubArchivePublisher:
         except (ValueError, KeyError, TypeError) as exc:
             raise ValueError("receipt lacks mandatory path manifest") from exc
         if (not isinstance(paths, list) or len(paths) != len(set(paths))
-                or any(not isinstance(path, str) or not _PATH.fullmatch(path) for path in paths)):
+                or any(not isinstance(path, str) or not (
+                    _PATH.fullmatch(path) or _RWA_STATE_PATH.fullmatch(path)
+                ) for path in paths)):
             raise ValueError("invalid receipt mandatory paths")
         return tuple(paths)
 
