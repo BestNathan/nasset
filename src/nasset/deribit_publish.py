@@ -249,7 +249,7 @@ class GitHubArchivePublisher:
             tree_sha = item["sha"]
 
         def newest(sha, prefix=(), depth=0):
-            expected = (r"[0-9]{4}", r"[0-9]{2}", r"[0-9]{2}", r"[0-9]{4}\\.json")[depth]
+            expected = (r"[0-9]{4}", r"[0-9]{2}", r"[0-9]{2}", r"[0-9]{4}\.json")[depth]
             for item in sorted(entries(sha), key=lambda x: x["path"], reverse=True):
                 name = item["path"]
                 if not re.fullmatch(expected, name):
