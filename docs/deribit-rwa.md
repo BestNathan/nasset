@@ -65,7 +65,9 @@ multiplier **13.116**, and Deribit source URL. This declaration alone does not
 convert raw snapshots. The hourly catalog must show the old instrument in a
 prior checkpoint, and the new instrument live while the old one is absent,
 at or after the announced time. Only then is `price_rebase_observed` emitted
-and the rule persisted in `confirmed_actions`.
+and the full source URL, old/new instrument identities and conversion factors
+persisted immutably in `confirmed_actions`. Later configuration changes to a
+confirmed factor or identity are rejected, not silently applied to history.
 
 For an observed rebase with divisor `K`:
 `adjusted_old_mark = native_old_mark / K`;
