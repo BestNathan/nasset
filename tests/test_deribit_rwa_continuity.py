@@ -170,6 +170,33 @@ def test_rebase_requires_both_source_history_and_actual_replacement():
     assert s4["confirmed_actions"] == s3["confirmed_actions"]
 
 
+def test_confirmed_conversion_action_payload_is_immutable():
+    actions = validate_actions([ACTION])
+    before = build_state(START, START,
+                         {"ANTH_USDC-PERPETUAL": inventory("ANTH")},
+                         None, actions)
+    after = build_state(
+        CONVERSION + timedelta(hours=1), CONVERSION + timedelta(hours=1),
+        {"ANT_USDC-PERPETUAL": inventory("ANT")}, before, actions,
+    )
+    fixed = after["confirmed_actions"][0]["action"]
+    assert fixed["price_divisor"] == 13.116
+    assert fixed["source_url"].startswith("https://insights.deribit.com/")
+    assert json.loads(state_payload(after))["confirmed_actions"][0]["action"] == ACTION
+    altered = validate_actions([{**ACTION, "price_divisor": 2.0,
+                                  "quantity_multiplier": 2.0}])
+    with pytest.raises(DeribitError, match="changed or removed"):
+        build_state(
+            CONVERSION + timedelta(hours=2), CONVERSION + timedelta(hours=2),
+            {"ANT_USDC-PERPETUAL": inventory("ANT")}, after, altered,
+        )
+    with pytest.raises(ValueError, match="source-pinned"):
+        continuous_marks(
+            [{"instrument_name": "ANTH_USDC-PERPETUAL", "mark_price": 1000.0}],
+            altered, after["confirmed_actions"],
+        )
+
+
 def test_no_fake_rebase_from_unseen_legacy_or_price_jump():
     actions = validate_actions([ACTION])
     new = {"ANT_USDC-PERPETUAL": inventory("ANT")}
@@ -194,7 +221,8 @@ def test_confirmed_continuous_marks_preserve_native_and_economic_notional():
         {"instrument_name": "NVDA_USDC-PERPETUAL", "mark_price": 180.0},
     ]
     rows = continuous_marks(points, actions, [{"id": ACTION["id"],
-                                                 "observed_at": CONVERSION.isoformat()}])
+                                                 "observed_at": CONVERSION.isoformat(),
+                                                 "action": ACTION}])
     old, new, other = rows
     assert old["lineage_id"] == new["lineage_id"] == "ANTH_USDC-PERPETUAL"
     assert old["canonical_instrument"] == new["canonical_instrument"] == "ANT_USDC-PERPETUAL"
