@@ -16,6 +16,7 @@ from typing import Mapping
 import requests
 
 from .deribit_slot import SLOT_PREFIX
+from .deribit_rwa_lifecycle import parse_state
 
 _PATH = re.compile(r"^deribit/[a-z_]+/(?:[A-Z0-9]+/)?[0-9]{4}/[0-9]{2}/[0-9]{2}/[0-9]{4}\.parquet$")
 _EVENT_KEY_PATH = re.compile(
@@ -25,6 +26,9 @@ _EVENT_KEY_PATH = re.compile(
 _EVENT_PREFIX = b"deribit-event-v1\n"
 _COVERAGE_PATH = re.compile(
     r"^deribit/coverage/[0-9]{4}/[0-9]{2}/[0-9]{2}/[0-9]{4}\.json$"
+)
+_RWA_STATE_PATH = re.compile(
+    r"^deribit/rwa_state/[0-9]{4}/[0-9]{2}/[0-9]{2}/[0-9]{4}\.json$"
 )
 _SLOT_PATH = re.compile(r"^deribit/slots/[0-9]{4}/[0-9]{2}/[0-9]{2}/[0-9]{4}\.receipt$")
 _MANIFEST_PATH = re.compile(
@@ -38,6 +42,8 @@ MANIFEST_MAX_BYTES = _MANIFEST_MAX_BYTES
 # Git Trees support inline UTF-8 content for blobs. Build small tree batches,
 # and move the ref only after every batch succeeds.
 TREE_BATCH_SIZE = 250
+_EXPECTED_TIP_UNSET = object()
+_RWA_STATE_MAX_BYTES = 1024 * 1024
 
 
 class PublishConflict(RuntimeError):
@@ -207,6 +213,83 @@ class GitHubArchivePublisher:
                         found[target] = entry["sha"]
         return found
 
+    def latest_rwa_state(self, before_slot) -> tuple[dict | None, str | None]:
+        """Read just the latest immutable RWA checkpoint before a UTC slot.
+
+        Never download historical Parquet. Descending tree traversal is bounded
+        by calendar directory depth; each ancestor lookup is non-recursive.
+        Return branch tip too, to bind publication to the SAME observed state.
+        """
+        from datetime import datetime, timezone
+
+        if (not isinstance(before_slot, datetime) or before_slot.tzinfo is None
+                or before_slot.utcoffset().total_seconds() != 0):
+            raise ValueError("RWA checkpoint cutoff must be UTC")
+        cutoff = before_slot.strftime("%Y/%m/%d/%H00.json")
+        ref = self._api("GET", "/git/ref/heads/market-data", missing_ok=True)
+        if ref is None:
+            return None, None
+        tip = ref["object"]["sha"]
+        commit = self._api("GET", f"/git/commits/{tip}")
+        tree_sha = commit["tree"]["sha"]
+
+        def entries(sha):
+            record = self._api("GET", f"/git/trees/{sha}")
+            if (not isinstance(record, dict) or record.get("truncated")
+                    or not isinstance(record.get("tree"), list)):
+                raise PublishConflict("invalid/truncated RWA catalog tree")
+            return record["tree"]
+
+        for directory in ("deribit", "rwa_state"):
+            item = next((x for x in entries(tree_sha) if x["path"] == directory), None)
+            if item is None:
+                return None, tip  # First deployment; no legacy state exists.
+            if item["type"] != "tree":
+                raise PublishConflict(f"RWA checkpoint directory is not a tree: {directory}")
+            tree_sha = item["sha"]
+
+        def newest(sha, prefix=(), depth=0):
+            expected = (r"[0-9]{4}", r"[0-9]{2}", r"[0-9]{2}", r"[0-9]{4}\\.json")[depth]
+            for item in sorted(entries(sha), key=lambda x: x["path"], reverse=True):
+                name = item["path"]
+                if not re.fullmatch(expected, name):
+                    raise PublishConflict("unknown path in immutable RWA checkpoint tree")
+                next_prefix = (*prefix, name)
+                key = "/".join(next_prefix)
+                if depth == 3:
+                    if key < cutoff:
+                        if item["type"] != "blob":
+                            raise PublishConflict("RWA checkpoint is not a blob")
+                        return key, item["sha"]
+                else:
+                    if item["type"] != "tree":
+                        raise PublishConflict("RWA checkpoint component is not a directory")
+                    # Skip whole future calendar subtrees safely.
+                    if key > "/".join(cutoff.split("/")[:depth + 1]):
+                        continue
+                    found = newest(item["sha"], next_prefix, depth + 1)
+                    if found is not None:
+                        return found
+            return None
+
+        found = newest(tree_sha)
+        if found is None:
+            return None, tip
+        subpath, sha = found
+        path = "deribit/rwa_state/" + subpath
+        blob = self._api("GET", f"/git/blobs/{sha}")
+        try:
+            if not isinstance(blob, dict) or blob.get("encoding") != "base64":
+                raise ValueError("RWA checkpoint blob encoding invalid")
+            payload = base64.b64decode("".join(blob["content"].split()), validate=True)
+            if len(payload) > _RWA_STATE_MAX_BYTES or git_blob_sha(payload) != sha:
+                raise ValueError("RWA checkpoint corrupt or oversized")
+            self._validate_rwa_state(path, payload)
+            state = parse_state(json.loads(payload))
+        except (ValueError, KeyError, TypeError, base64.binascii.Error) as exc:
+            raise PublishConflict("RWA checkpoint corrupted; refusing continuity inference") from exc
+        return state, tip
+
     def completed_slot(self, receipt: tuple[str, bytes]) -> bool:
         """Check exact due-slot completion without fetching stored Parquet blobs.
 
@@ -272,13 +355,16 @@ class GitHubArchivePublisher:
             if (not isinstance(path, str) or not isinstance(sha, str)
                     or not re.fullmatch(r"[0-9a-f]{40}", sha)
                     or not (_PATH.fullmatch(path) or _EVENT_KEY_PATH.fullmatch(path)
-                            or _COVERAGE_PATH.fullmatch(path) or _SLOT_PATH.fullmatch(path))
+                            or _COVERAGE_PATH.fullmatch(path) or _RWA_STATE_PATH.fullmatch(path)
+                            or _SLOT_PATH.fullmatch(path))
                     or path in expected):
                 raise PublishConflict("invalid/duplicate UTC slot artifact inventory path")
             if (_PATH.fullmatch(path) and not path.endswith(stamp + ".parquet")):
                 raise PublishConflict("manifest contains a Parquet file from another UTC slot")
             if (_COVERAGE_PATH.fullmatch(path) and not path.endswith(stamp + ".json")):
                 raise PublishConflict("manifest contains coverage from another UTC slot")
+            if (_RWA_STATE_PATH.fullmatch(path) and not path.endswith(stamp + ".json")):
+                raise PublishConflict("manifest contains RWA state from another UTC slot")
             if _SLOT_PATH.fullmatch(path) and path != receipt_path:
                 raise PublishConflict("manifest contains a different UTC slot receipt")
             expected[path] = sha
@@ -353,8 +439,21 @@ class GitHubArchivePublisher:
                 raise ValueError(f"duplicate unlisted capability record: {path}")
             seen.add(identity)
 
+    @staticmethod
+    def _validate_rwa_state(path: str, payload: bytes) -> None:
+        if (not _RWA_STATE_PATH.fullmatch(path) or len(payload) > _RWA_STATE_MAX_BYTES
+                or not payload):
+            raise ValueError("invalid RWA checkpoint path or size")
+        state = parse_state(json.loads(payload))
+        stamp = state["snapshot_slot_at"]
+        expected = path.removeprefix("deribit/rwa_state/").removesuffix(".json")
+        from datetime import datetime
+        if datetime.fromisoformat(stamp).strftime("%Y/%m/%d/%H00") != expected:
+            raise ValueError("RWA checkpoint slot does not match path")
+
     def publish(self, parts: Mapping[str, bytes], *, branch: str = "market-data",
-                slot_receipt: tuple[str, bytes] | None = None) -> PublishResult:
+                slot_receipt: tuple[str, bytes] | None = None,
+                expected_tip: str | None | object = _EXPECTED_TIP_UNSET) -> PublishResult:
         if branch != "market-data":
             raise ValueError("only market-data orphan branch is supported")
         if not parts:
@@ -369,6 +468,9 @@ class GitHubArchivePublisher:
             if any(not path.endswith(suffix + ".json")
                    for path in parts if _COVERAGE_PATH.fullmatch(path)):
                 raise ValueError("coverage manifest must belong to the receipt UTC slot")
+            if any(not path.endswith(suffix + ".json")
+                   for path in parts if _RWA_STATE_PATH.fullmatch(path)):
+                raise ValueError("RWA checkpoint must belong to the receipt UTC slot")
             if receipt_path in parts or any(_MANIFEST_PATH.fullmatch(p) for p in parts):
                 raise ValueError("receipt/manifest path must not appear in raw parts")
             if not set(self._receipt_required_paths(receipt_payload)).issubset(parts):
@@ -380,6 +482,7 @@ class GitHubArchivePublisher:
             if not isinstance(path, str) or not (_PATH.fullmatch(path) or _EVENT_KEY_PATH.fullmatch(path)
                                                   or _SLOT_PATH.fullmatch(path)
                                                   or _COVERAGE_PATH.fullmatch(path)
+                                                  or _RWA_STATE_PATH.fullmatch(path)
                                                   or _MANIFEST_PATH.fullmatch(path)):
                 raise ValueError(f"invalid archive path: {path!r}")
             if not isinstance(payload, bytes):
@@ -391,6 +494,8 @@ class GitHubArchivePublisher:
                 self._validate_receipt(path, payload)
             elif _COVERAGE_PATH.fullmatch(path):
                 self._validate_coverage(path, payload)
+            elif _RWA_STATE_PATH.fullmatch(path):
+                self._validate_rwa_state(path, payload)
             elif _MANIFEST_PATH.fullmatch(path):
                 if not payload.startswith(_MANIFEST_PREFIX):
                     raise ValueError(f"invalid artifact manifest: {path}")
@@ -401,6 +506,9 @@ class GitHubArchivePublisher:
 
         names = tuple(sorted(parts))
         ref = self._api("GET", "/git/ref/heads/market-data", missing_ok=True)
+        if (expected_tip is not _EXPECTED_TIP_UNSET
+                and (ref["object"]["sha"] if ref is not None else None) != expected_tip):
+            raise PublishConflict("RWA checkpoint archive tip changed since observation")
         if ref is None:
             # The branch must be created as a zero-parent root, not from main.
             tree_sha = self._build_tree(parts, base_tree=None)
@@ -499,7 +607,8 @@ class GitHubArchivePublisher:
         for path in sorted(parts):
             entry = {"path": path, "mode": "100644", "type": "blob"}
             if (_EVENT_KEY_PATH.fullmatch(path) or _SLOT_PATH.fullmatch(path)
-                    or _COVERAGE_PATH.fullmatch(path) or _MANIFEST_PATH.fullmatch(path)):
+                    or _COVERAGE_PATH.fullmatch(path) or _RWA_STATE_PATH.fullmatch(path)
+                    or _MANIFEST_PATH.fullmatch(path)):
                 try:
                     entry["content"] = parts[path].decode("utf-8")
                 except UnicodeDecodeError as exc:
