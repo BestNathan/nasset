@@ -12,6 +12,8 @@ from typing import Any, Mapping
 
 import yaml
 
+from .deribit_rwa_lifecycle import validate_actions
+
 SUPPORTED_DATASETS = frozenset({
     "option_chain", "index_price", "delivery_price", "volatility_index",
     "historical_volatility", "futures_curve", "rwa_perpetual", "funding_rate",
@@ -99,6 +101,13 @@ def parse_config(doc: Mapping[str, Any]) -> ArchiveConfig:
                 raise ValueError("rwa_perpetual ticker appears in multiple categories")
             if set(selected) & set(underlyings):
                 raise ValueError("rwa_perpetual must not overlap crypto underlyings")
+            # A declared price rebase is an auditable source event, not a
+            # price-jump heuristic. Use only full, non-overlapping identity links.
+            actions = validate_actions(spec.get("corporate_actions", []))
+            if any(a["from_instrument"].split("_", 1)[0] not in selected
+                   or a["to_instrument"].split("_", 1)[0] not in selected
+                   for a in actions):
+                raise ValueError("RWA action references ticker outside registry")
         else:
             selected = _symbols(spec.get("underlyings", list(underlyings)), f"{name}.underlyings")
             if not set(selected).issubset(underlyings):

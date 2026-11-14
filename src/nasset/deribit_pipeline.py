@@ -16,6 +16,7 @@ from .deribit_client import DeribitClient, DeribitError
 from .deribit_parquet import SCHEMAS, encode_part, part_path
 from .deribit_history import ExistingLookup, unseen_events
 from .deribit_rwa import collect_rwa_perpetual
+from .deribit_rwa_lifecycle import build_state, price_basis, state_payload, validate_actions
 
 LIVE_DATASETS = frozenset({
     "option_chain", "index_price", "futures_curve", "volatility_index",
@@ -35,6 +36,7 @@ class PreparedBatch:
 def prepare_live_batch(
     config: ArchiveConfig, client: DeribitClient, now: datetime,
     *, existing: ExistingLookup | None = None,
+    previous_rwa_state: Mapping | None = None,
 ) -> PreparedBatch:
     """Prepare all due datasets or fail without publishing any file.
 
@@ -97,13 +99,22 @@ def prepare_live_batch(
         # A single small typed part covers all active curated RWA instruments.
         # Zero rows is a verified zero-listing, never a synthetic zero price.
         ds = by_name["rwa_perpetual"]
-        rwa_rows, rwa_captured = collect_rwa_perpetual(client, ds.options["categories"])
+        rwa_rows, rwa_captured, inventory = collect_rwa_perpetual(
+            client, ds.options["categories"]
+        )
         if rwa_captured.replace(minute=0, second=0, microsecond=0) != slot:
             raise DeribitError("RWA capture hour differs from requested UTC slot")
+        actions = validate_actions(ds.options.get("corporate_actions", []))
+        state = build_state(slot, rwa_captured, inventory, previous_rwa_state, actions)
+        confirmed = {x["id"] for x in state["confirmed_actions"]}
+        for row in rwa_rows:
+            row["pricing_basis"] = price_basis(row["instrument_name"], row["category"],
+                                               actions, confirmed)
         parts[part_path("rwa_perpetual", slot)] = encode_part(
             "rwa_perpetual", rwa_rows, slot=slot, captured_at=rwa_captured,
             compression_level=config.compression_level,
         )
+        parts[f"deribit/rwa_state/{slot:%Y/%m/%d/%H00}.json"] = state_payload(state)
     unlisted: list[tuple[str, str]] = []
     for name, rows in (("option_chain", snapshot.options if snapshot else ()),
                        ("futures_curve", snapshot.futures if snapshot else ())):

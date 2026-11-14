@@ -48,6 +48,10 @@ def slot_receipt(config: ArchiveConfig, now: datetime) -> tuple[str, bytes]:
             required_paths.append(
                 f"deribit/{dataset.name}/{slot:%Y/%m/%d/%H00}.parquet"
             )
+            if dataset.name == "rwa_perpetual":
+                required_paths.append(
+                    f"deribit/rwa_state/{slot:%Y/%m/%d/%H00}.json"
+                )
     document = {
         "required_paths": sorted(required_paths),
         "version": 1,
