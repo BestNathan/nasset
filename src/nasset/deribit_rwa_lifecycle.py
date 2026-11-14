@@ -206,6 +206,16 @@ def build_state(slot: datetime, observed_at: datetime,
             if diff:
                 events.append({"type": "contract_spec_changed", "instrument_name": name,
                                "observed_at": now, "changes": diff})
+                if "price_index" in diff:
+                    # Price reference changed in observed metadata. This does
+                    # NOT prove a post-IPO bridge or authorize price adjustment.
+                    events.append({
+                        "type": "pricing_reference_changed_observed",
+                        "instrument_name": name, "observed_at": now,
+                        "previous_index": diff["price_index"]["before"],
+                        "new_index": diff["price_index"]["after"],
+                        "conversion_status": "unverified_reference_transition",
+                    })
     confirmed = list(previous["confirmed_actions"]) if previous else []
     confirmed_ids = {item["id"] for item in confirmed}
     for action in actions:
