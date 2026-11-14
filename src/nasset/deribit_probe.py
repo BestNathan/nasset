@@ -132,6 +132,10 @@ def probe(config: ArchiveConfig, client: DeribitClient,
             source_failures[ds.name] = str(exc)
             continue
         for path, payload in sorted(batch.parts.items()):
+            if path.startswith("deribit/rwa_state/") and path.endswith(".json"):
+                from .deribit_rwa_lifecycle import parse_state
+                parse_state(json.loads(payload))
+                continue
             if not path.endswith(".parquet"):
                 raise DeribitError("live probe unexpectedly generated non-Parquet data")
             file_meta = pq.read_metadata(BytesIO(payload))
