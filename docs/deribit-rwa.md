@@ -81,8 +81,11 @@ scheduled. No exchange conversion timestamp is invented: the checkpoint uses
 
 **Phase 2 is distinct:** after the IPO a 5-minute TWAP bridge may switch the
 reference index to actual public equity; no price-divisor change should be
-assumed. Its status must be tracked as a new priced-basis event based on
-published exchange details, not on the observed mark-price jump.
+assumed. Changes to the live instrument `price_index` create an explicit
+`pricing_reference_changed_observed` event with the previous/new index,
+marked `unverified_reference_transition`. This event alone does not establish
+that the IPO TWAP bridge has occurred; a verified official declaration must
+be added before relabeling the price basis as the live stock market.
 
 ## Pre-IPO pricing, unit changes and comparison limitations
 
