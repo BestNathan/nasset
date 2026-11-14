@@ -20,7 +20,7 @@ from .deribit_archive import ArchiveConfig, Dataset, load_config
 from .deribit_client import DeribitClient, DeribitError
 from .deribit_pipeline import prepare_live_batch
 
-LIVE_NAMES = frozenset({"option_chain", "index_price", "futures_curve", "volatility_index"})
+LIVE_NAMES = frozenset({"option_chain", "index_price", "futures_curve", "volatility_index", "rwa_perpetual"})
 
 
 def normalize_supported_indices(data: Any) -> set[str]:
