@@ -1,8 +1,9 @@
 """Curated Deribit RWA perpetual collector, isolated from crypto derivatives.
 
 Source classification: https://support.deribit.com/hc/en-us/articles/38325634622493-RWA-Perpetual
-The API is authoritative for *listed instruments*, while the curated
-categories are authoritative for classifying RWA versus crypto.
+The API product_group=RWA identifies newly listed RWA instruments.
+A curated registry supplies independently verified subcategories; unknown
+new listings are retained as unclassified, never guessed to be equities.
 """
 from __future__ import annotations
 
@@ -47,7 +48,10 @@ def collect_rwa_perpetual(
     selected: dict[str, dict[str, Any]] = {}
     for instrument in catalog:
         symbol = instrument.get("base_currency")
-        if symbol not in registry:
+        group = instrument.get("product_group")
+        # The exchange's RWA group is authoritative for automatic discovery.
+        # Retain older metadata missing group only for curated known tickers.
+        if group != "RWA" and (symbol not in registry or group is not None):
             continue
         name = f"{symbol}_USDC-PERPETUAL"
         if instrument["instrument_name"] != name:
@@ -80,14 +84,16 @@ def collect_rwa_perpetual(
     rows: list[dict[str, Any]] = []
     for name, instrument in sorted(selected.items()):
         symbol = instrument["base_currency"]
-        category = registry[symbol]
+        category = registry.get(symbol, "unclassified")
         quote = quotes[name]
         row: dict[str, Any] = {
             "instrument_name": name,
             "base_currency": symbol,
             "category": category,
             "pricing_basis": ("pre_ipo_internal_reference" if category == "pre_ipo"
+                              else "unclassified_rwa_reference" if category == "unclassified"
                               else "rwa_market_reference"),
+            "product_group": instrument.get("product_group"),
             "quote_currency": "USDC",
             "settlement_currency": "USDC",
             "kind": "future",

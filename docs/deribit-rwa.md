@@ -8,13 +8,18 @@ contract specifications](https://support.deribit.com/hc/en-us/articles/383256346
 ## Scope and discovery
 
 - Categories: equities, equity ETFs, commodities, pre-IPO.
-- Curated classified universe: `config/market-data.yml` `rwa_perpetual.categories`.
-  A ticker is introduced only after verifying its category against Deribit's
-  official current contracts; do not infer RWA from `_USDC-PERPETUAL` alone,
-  since crypto instruments share the suffix.
+- Curated **subcategory** registry: `config/market-data.yml`
+  `rwa_perpetual.categories`. The Deribit API's `product_group=RWA`
+  identifies new RWA listings without manual sync. Newly discovered
+  instruments outside the verified registry are collected with category
+  `unclassified` and pricing basis `unclassified_rwa_reference`.
+  Update the subcategory list after official verification. Do not infer RWA
+  from `_USDC-PERPETUAL` alone, since crypto instruments share the suffix.
 - For every hourly due slot, read `get_instruments(currency=any,kind=future)`;
-  match the **exact** `TICKER_USDC-PERPETUAL` name, base currency, kind and
-  USDC settlement, excluding explicitly inactive listings. Only then read
+  discover `product_group=RWA` and accept curated older metadata without
+  group labels; match the **exact** `TICKER_USDC-PERPETUAL` name, base
+  currency, kind and USDC settlement, excluding explicitly inactive listings.
+  Only then read
   `get_book_summary_by_currency(currency=USDC,kind=future)` and join on
   full instrument name. If a listed contract lacks a quote, fail the whole
   atomic batch. Unknown crypto or fixed-expiry derivatives never enter RWA.
@@ -44,5 +49,5 @@ back-adjust this raw market data.
 Read-only dry-run `python -m nasset.deribit_collect --config
 config/market-data.yml` verifies the batch; actual publication still requires
 the existing repository-controlled activation gate. The data is not yet
-projected into the GitHub Pages dashboard. New Deribit RWA listings require
-review and a registry update.
+projected into the GitHub Pages dashboard. New Deribit RWA listings are auto-collected when the API marks them RWA;
+the category registry should be reviewed to refine `unclassified` rows.

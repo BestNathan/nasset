@@ -34,6 +34,7 @@ SCHEMAS = {
     "rwa_perpetual": [
         ("instrument_name", pa.string()), ("base_currency", pa.string()),
         ("category", pa.string()), ("pricing_basis", pa.string()),
+        ("product_group", pa.string()),
         ("quote_currency", pa.string()), ("settlement_currency", pa.string()),
         ("kind", pa.string()), ("instrument_type", pa.string()),
         ("price_index", pa.string()), ("expiration_timestamp", pa.int64()),

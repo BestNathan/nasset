@@ -38,11 +38,15 @@ def transport(method, params):
             {"instrument_name": f"{symbol}_USDC-PERPETUAL", "base_currency": symbol,
              "kind": "future", "settlement_currency": "USDC",
              "contract_size": 0.01, "tick_size": 0.01, "is_active": True,
-             "price_index": f"{symbol.lower()}_usd"}
+             "price_index": f"{symbol.lower()}_usd", "product_group": "RWA"}
             for symbol in ("NVDA", "SPY", "GOLD", "ANTH", "OPENAI")
         ] + [
             {"instrument_name": "SOL_USDC-PERPETUAL", "base_currency": "SOL",
-             "kind": "future", "settlement_currency": "USDC", "is_active": True},
+             "kind": "future", "settlement_currency": "USDC", "is_active": True,
+             "product_group": "SOL"},
+            {"instrument_name": "NEWCO_USDC-PERPETUAL", "base_currency": "NEWCO",
+             "kind": "future", "settlement_currency": "USDC", "is_active": True,
+             "product_group": "RWA"},
             {"instrument_name": "NVDA_USDC-30DEC26", "base_currency": "NVDA",
              "kind": "future", "settlement_currency": "USDC", "is_active": True},
         ]
@@ -53,7 +57,8 @@ def transport(method, params):
              "mark_price": 100.0 + i, "bid_price": 99.0 + i,
              "ask_price": 101.0 + i, "volume_usd": 1234.0}
             for i, symbol in enumerate(("NVDA", "SPY", "GOLD", "ANTH", "OPENAI"))
-        ] + [{"instrument_name": "SOL_USDC-PERPETUAL", "mark_price": 1.0}]
+        ] + [{"instrument_name": "SOL_USDC-PERPETUAL", "mark_price": 1.0},
+             {"instrument_name": "NEWCO_USDC-PERPETUAL", "mark_price": 55.0}]
     raise AssertionError((method, params))
 
 
@@ -63,9 +68,12 @@ def test_rwa_is_separate_from_crypto_and_preserves_pre_ipo_native_prices():
     path = next(iter(batch.parts))
     assert path.startswith("deribit/rwa_perpetual/")
     table = pq.read_table(BytesIO(batch.parts[path]))
-    assert table.num_rows == 5
+    assert table.num_rows == 6
     rows = {r["base_currency"]: r for r in table.to_pylist()}
-    assert set(rows) == {"NVDA", "SPY", "GOLD", "ANTH", "OPENAI"}
+    assert set(rows) == {"NVDA", "SPY", "GOLD", "ANTH", "OPENAI", "NEWCO"}
+    assert rows["NEWCO"]["category"] == "unclassified"
+    assert rows["NEWCO"]["pricing_basis"] == "unclassified_rwa_reference"
+    assert rows["NEWCO"]["product_group"] == "RWA"
     assert rows["ANTH"]["category"] == "pre_ipo"
     assert rows["ANTH"]["pricing_basis"] == "pre_ipo_internal_reference"
     assert rows["ANTH"]["mark_price"] == 103.0
