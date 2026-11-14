@@ -138,9 +138,15 @@ def parse_state(raw: Any) -> dict[str, Any]:
         _stamp(record.get("first_seen_at"))
         _stamp(record.get("last_seen_at"))
         _spec(record["spec"])
-    if any(not isinstance(x, dict) or not isinstance(x.get("id"), str)
-           or not isinstance(x.get("observed_at"), str) for x in raw["confirmed_actions"]):
-        raise ValueError("invalid confirmed RWA actions")
+    for confirmed in raw["confirmed_actions"]:
+        if (not isinstance(confirmed, dict)
+                or set(confirmed) != {"id", "observed_at", "action"}
+                or not isinstance(confirmed["id"], str)):
+            raise ValueError("invalid confirmed RWA actions")
+        _stamp(confirmed["observed_at"])
+        declared = validate_actions([confirmed["action"]])[0]
+        if confirmed["id"] != declared["id"]:
+            raise ValueError("confirmed RWA action identifier mismatch")
     ids = [x["id"] for x in raw["confirmed_actions"]]
     if len(ids) != len(set(ids)):
         raise ValueError("duplicate confirmed RWA action")
@@ -217,6 +223,12 @@ def build_state(slot: datetime, observed_at: datetime,
                         "conversion_status": "unverified_reference_transition",
                     })
     confirmed = list(previous["confirmed_actions"]) if previous else []
+    declared = {x["id"]: dict(x) for x in actions}
+    # Lock verified ratios, source URLs and identity links to archived data.
+    # A later config edit must not silently recalculate historical performance.
+    for item in confirmed:
+        if declared.get(item["id"]) != item["action"]:
+            raise DeribitError(f"confirmed RWA conversion changed or removed: {item['id']}")
     confirmed_ids = {item["id"] for item in confirmed}
     for action in actions:
         if action["id"] in confirmed_ids:
@@ -238,7 +250,8 @@ def build_state(slot: datetime, observed_at: datetime,
                 "target_pricing_basis": action["target_pricing_basis"],
             }
             events.append(event)
-            confirmed.append({"id": action["id"], "observed_at": now})
+            confirmed.append({"id": action["id"], "observed_at": now,
+                              "action": dict(action)})
     return parse_state({
         "version": _VERSION,
         "provider": "deribit",
@@ -280,6 +293,11 @@ def continuous_marks(rows: list[Mapping[str, Any]],
     Recomputing from the versioned action ledger adjusts older history without
     ever rewriting archived Parquet price blobs. Supports multi-step rebases.
     """
+    declared = {a["id"]: a for a in validate_actions(list(actions))}
+    for item in confirmed:
+        if (not isinstance(item, dict) or
+                declared.get(item.get("id")) != item.get("action")):
+            raise ValueError("continuous marks require source-pinned verified conversion")
     confirmed_ids = {x["id"] for x in confirmed}
     chain = {a["from_instrument"]: a for a in actions if a["id"] in confirmed_ids}
     dests = {a["to_instrument"]: a for a in chain.values()}
