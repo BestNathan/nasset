@@ -31,6 +31,21 @@ SCHEMAS = {
         ("underlying_index", pa.string()), ("open_interest", pa.float64()),
         ("volume", pa.float64()), ("volume_usd", pa.float64()),
     ],
+    "rwa_perpetual": [
+        ("instrument_name", pa.string()), ("base_currency", pa.string()),
+        ("category", pa.string()), ("pricing_basis", pa.string()),
+        ("quote_currency", pa.string()), ("settlement_currency", pa.string()),
+        ("kind", pa.string()), ("instrument_type", pa.string()),
+        ("price_index", pa.string()), ("expiration_timestamp", pa.int64()),
+        ("contract_size", pa.float64()), ("tick_size", pa.float64()),
+        ("min_trade_amount", pa.float64()), ("is_active", pa.bool_()),
+        ("mark_price", pa.float64()), ("index_price", pa.float64()),
+        ("bid_price", pa.float64()), ("ask_price", pa.float64()),
+        ("last", pa.float64()), ("open_interest", pa.float64()),
+        ("volume", pa.float64()), ("volume_usd", pa.float64()),
+        ("interest_rate", pa.float64()), ("current_funding", pa.float64()),
+        ("funding_8h", pa.float64()),
+    ],
     "futures_curve": [
         ("instrument_name", pa.string()), ("base_currency", pa.string()),
         ("quote_currency", pa.string()), ("settlement_currency", pa.string()),
@@ -103,7 +118,7 @@ def encode_part(
         raise ValueError("slot must be aligned to an exact UTC hour")
     if not 1 <= compression_level <= 22:
         raise ValueError("invalid ZSTD compression level")
-    if not rows:
+    if not rows and dataset != "rwa_perpetual":
         raise ValueError("refusing to publish empty Parquet snapshot")
     fields = dict(IDENTITY + SCHEMAS[dataset])
     allowed = set(fields)
@@ -112,7 +127,7 @@ def encode_part(
         unknown = set(row) - allowed
         if unknown:
             raise ValueError(f"unknown {dataset} fields: {sorted(unknown)}")
-        if dataset in {"option_chain", "futures_curve"} and not row.get("instrument_name"):
+        if dataset in {"option_chain", "futures_curve", "rwa_perpetual"} and not row.get("instrument_name"):
             raise ValueError("instrument_name required")
         if dataset in {"index_price", "delivery_price"} and not row.get("index_name"):
             raise ValueError("index_name required")

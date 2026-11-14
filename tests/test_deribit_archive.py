@@ -16,9 +16,9 @@ def test_hourly_scope_and_daily_incremental_sources():
     all_sources = {ds.name: ds for ds in cfg.datasets}
     assert set(all_sources) == {
         "option_chain", "index_price", "delivery_price", "volatility_index",
-        "historical_volatility", "futures_curve",
+        "historical_volatility", "futures_curve", "rwa_perpetual",
     }
-    for name in ("option_chain", "index_price", "volatility_index", "futures_curve"):
+    for name in ("option_chain", "index_price", "volatility_index", "futures_curve", "rwa_perpetual"):
         assert all_sources[name].interval_hours == 1
     assert all_sources["option_chain"].underlyings == ("BTC", "ETH")
     assert all_sources["index_price"].underlyings == ("BTC", "ETH", "PAXG")
@@ -32,10 +32,10 @@ def test_hourly_scope_and_daily_incremental_sources():
 def test_due_gate_and_utc_slot():
     cfg = load_config(CONFIG)
     midnight = datetime(2026, 11, 5, tzinfo=timezone.utc)
-    assert len(cfg.due(midnight)) == 6
+    assert len(cfg.due(midnight)) == 7
     midday = midnight + timedelta(hours=13, minutes=37)
     assert {d.name for d in cfg.due(midday)} == {
-        "option_chain", "index_price", "volatility_index", "futures_curve"
+        "option_chain", "index_price", "volatility_index", "futures_curve", "rwa_perpetual"
     }
     assert cfg.slot(midday) == "2026/11/05/1300"
     assert cfg.slot(midday.astimezone(timezone(timedelta(hours=-8)))) == "2026/11/05/1300"

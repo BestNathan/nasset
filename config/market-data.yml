@@ -58,6 +58,19 @@ sources:
         enabled: true
         interval_hours: 1
 
+      # Curated Deribit RWA perpetual registry (official contract specifications).
+      # API discovers actual listings; an empty listing is stored as zero rows.
+      # Do not mix these with BTC/ETH/PAXG crypto derivatives. Add newly
+      # announced tickers here only after verifying their RWA category.
+      rwa_perpetual:
+        enabled: true
+        interval_hours: 1
+        categories:
+          equity: [AAOI, AAPL, AMD, AMZN, ARM, AVGO, BE, BMNR, CBRS, CRCL, CRWV, DELL, GOOGL, HOOD, INTC, LITE, META, MRVL, MSFT, MSTR, MU, NBIS, NVDA, ORCL, PLTR, RKLB, SKHY, SNDK, SPCX, TSLA, TSM, WDC]
+          equity_etf: [DRAM, EWY, KORU, QQQ, SNXX, SOXL, SOXS, SPY]
+          commodity: [BRENTOIL, GOLD, SILVER, WTIOIL]
+          pre_ipo: [ANTH, OPENAI]
+
       # P2: separate future scope; disabled by default.
       funding_rate:
         enabled: false

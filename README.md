@@ -70,6 +70,10 @@ A separate [Deribit Market Data](site/deribit.html) dashboard lives beside
 the existing cashflow dashboard and A-share dividend research view.
 It shows BTC / ETH option chains, BTC / ETH / PAXG futures and reference
 indices, BTC / ETH DVOL, historical snapshots and Git-backed hourly receipts.
+The hourly archive also collects Deribit RWA perpetuals (equities, ETFs,
+commodities and pre-IPO) in a separate typed dataset; see
+[Deribit RWA collection](docs/deribit-rwa.md). This archive-only addition
+does not yet add an RWA panel to Pages.
 The options matrix uses **DTE x OTM strike distance, not Delta**: this
 archive does not store native option Greeks or claim PAXG option coverage.
 
