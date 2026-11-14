@@ -69,7 +69,19 @@ sources:
           equity: [AAOI, AAPL, AMD, AMZN, ARM, AVGO, BE, BMNR, CBRS, CRCL, CRWV, DELL, GOOGL, HOOD, INTC, LITE, META, MRVL, MSFT, MSTR, MU, NBIS, NVDA, ORCL, PLTR, RKLB, SKHY, SNDK, SPCX, TSLA, TSM, WDC]
           equity_etf: [DRAM, EWY, KORU, QQQ, SNXX, SOXL, SOXS, SPY]
           commodity: [BRENTOIL, GOLD, SILVER, WTIOIL]
-          pre_ipo: [ANTH, OPENAI]
+          pre_ipo: [ANTH, ANT, OPENAI]
+        # Official announcement only; source observation confirms execution.
+        # Preserve raw prices and position quantities in native units.
+        corporate_actions:
+          - id: anth-into-ant-20261116
+            kind: price_rebase
+            from_instrument: ANTH_USDC-PERPETUAL
+            to_instrument: ANT_USDC-PERPETUAL
+            effective_at: "2026-11-16T10:00:00Z"
+            price_divisor: 13.116
+            quantity_multiplier: 13.116
+            source_url: https://insights.deribit.com/exchange-updates/deribit-to-migrate-anthropic-perpetual-to-per-share-pricing/
+            target_pricing_basis: pre_ipo_per_share_reference
 
       # P2: separate future scope; disabled by default.
       funding_rate:

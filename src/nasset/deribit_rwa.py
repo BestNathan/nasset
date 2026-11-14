@@ -33,7 +33,7 @@ def _native_float(value: Any, *, field: str, name: str) -> float | None:
 
 def collect_rwa_perpetual(
     client: DeribitClient, categories: Mapping[str, list[str]],
-) -> tuple[list[dict[str, Any]], datetime]:
+) -> tuple[list[dict[str, Any]], datetime, dict[str, dict[str, Any]]]:
     """Read active listed USDC linear RWA perpetuals, preserving native units.
 
     Never infer a stock/share count or rewrite pre-IPO price to a post-IPO
@@ -46,6 +46,7 @@ def collect_rwa_perpetual(
         raise ValueError("duplicate RWA category ticker")
     catalog = client.instruments(kinds=("future",))
     selected: dict[str, dict[str, Any]] = {}
+    inventory: dict[str, dict[str, Any]] = {}
     for instrument in catalog:
         symbol = instrument.get("base_currency")
         group = instrument.get("product_group")
@@ -59,9 +60,11 @@ def collect_rwa_perpetual(
         if (instrument.get("kind") != "future"
                 or instrument.get("settlement_currency") != "USDC"):
             raise DeribitError(f"RWA {name}: invalid instrument identity/settlement")
-        if instrument.get("is_active") is False:
-            continue
-        selected[name] = instrument
+        if name in inventory:
+            raise DeribitError(f"duplicate RWA catalog identity: {name}")
+        inventory[name] = instrument
+        if instrument.get("is_active") is not False:
+            selected[name] = instrument
     quotes: dict[str, dict[str, Any]] = {}
     if selected:
         response = client.call("get_book_summary_by_currency",
@@ -110,4 +113,4 @@ def collect_rwa_perpetual(
         if row["mark_price"] is None:
             raise DeribitError(f"RWA {name}: missing mark_price")
         rows.append(row)
-    return rows, datetime.now(timezone.utc)
+    return rows, datetime.now(timezone.utc), inventory

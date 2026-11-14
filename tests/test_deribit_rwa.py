@@ -93,8 +93,12 @@ def test_zero_active_listings_are_explicit_empty_parquet_not_zero_prices():
         raise AssertionError(method)
     now = datetime.now(timezone.utc).replace(minute=59, second=0)
     batch = prepare_live_batch(config(), DeribitClient(transport=empty), now)
-    assert len(batch.parts) == 1
-    assert pq.read_table(BytesIO(next(iter(batch.parts.values())))).num_rows == 0
+    assert len(batch.parts) == 2  # empty typed Parquet + complete lifecycle baseline
+    parquet = next(payload for path, payload in batch.parts.items() if path.endswith(".parquet"))
+    assert pq.read_table(BytesIO(parquet)).num_rows == 0
+    lifecycle = next(payload for path, payload in batch.parts.items()
+                     if "/rwa_state/" in path)
+    assert json.loads(lifecycle)["contracts"] == {}
 
 
 def test_listed_quote_gap_aborts_whole_batch():

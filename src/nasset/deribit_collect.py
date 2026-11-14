@@ -51,7 +51,16 @@ def collect_once(
             "note": "matching immutable UTC slot receipt; source was not queried",
         }
 
-    batch = prepare_live_batch(config, client, now, existing=publisher.existing)
+    rwa_due = any(ds.name == "rwa_perpetual" for ds in due)
+    previous_rwa_state, observed_tip = (
+        publisher.latest_rwa_state(now.astimezone(timezone.utc).replace(
+            minute=0, second=0, microsecond=0
+        )) if rwa_due else (None, None)
+    )
+    batch = prepare_live_batch(
+        config, client, now, existing=publisher.existing,
+        previous_rwa_state=previous_rwa_state,
+    )
     summaries: dict[str, dict[str, int]] = defaultdict(lambda: {"rows": 0, "bytes": 0, "parts": 0})
     parquet_paths = []
     marker_count = 0
@@ -82,15 +91,17 @@ def collect_once(
             {"dataset": dataset, "underlying": asset, "listed_count": 0}
             for dataset, asset in batch.unlisted
         ],
-        "coverage_manifests": coverage_paths,
+        "coverage_manifests": [p for p in coverage_paths if "/coverage/" in p],
+        "rwa_state_paths": [p for p in coverage_paths if "/rwa_state/" in p],
         "parquet_bytes": sum(len(batch.parts[p]) for p in parquet_paths),
         "batch_bytes": sum(map(len, batch.parts.values())),
     }
     if not batch.parts:
         result["status"] = "no_new_events"
     elif publish:
+        publish_kwargs = {"expected_tip": observed_tip} if rwa_due else {}
         saved = publisher.publish(batch.parts, branch=config.branch,
-                                  slot_receipt=receipt)
+                                  slot_receipt=receipt, **publish_kwargs)
         result["status"] = "created" if saved.created else "already_published"
         result["commit_sha"] = saved.commit_sha
 
