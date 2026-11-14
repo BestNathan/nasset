@@ -15,10 +15,11 @@ from .deribit_archive import ArchiveConfig
 from .deribit_client import DeribitClient, DeribitError
 from .deribit_parquet import SCHEMAS, encode_part, part_path
 from .deribit_history import ExistingLookup, unseen_events
+from .deribit_rwa import collect_rwa_perpetual
 
 LIVE_DATASETS = frozenset({
     "option_chain", "index_price", "futures_curve", "volatility_index",
-    "historical_volatility", "delivery_price",
+    "historical_volatility", "delivery_price", "rwa_perpetual",
 })
 HISTORY_DATASETS = frozenset({"historical_volatility", "delivery_price"})
 
@@ -92,6 +93,17 @@ def prepare_live_batch(
             raise DeribitError("snapshot capture hour differs from requested UTC slot")
 
     parts: dict[str, bytes] = {}
+    if "rwa_perpetual" in by_name:
+        # A single small typed part covers all active curated RWA instruments.
+        # Zero rows is a verified zero-listing, never a synthetic zero price.
+        ds = by_name["rwa_perpetual"]
+        rwa_rows, rwa_captured = collect_rwa_perpetual(client, ds.options["categories"])
+        if rwa_captured.replace(minute=0, second=0, microsecond=0) != slot:
+            raise DeribitError("RWA capture hour differs from requested UTC slot")
+        parts[part_path("rwa_perpetual", slot)] = encode_part(
+            "rwa_perpetual", rwa_rows, slot=slot, captured_at=rwa_captured,
+            compression_level=config.compression_level,
+        )
     unlisted: list[tuple[str, str]] = []
     for name, rows in (("option_chain", snapshot.options if snapshot else ()),
                        ("futures_curve", snapshot.futures if snapshot else ())):

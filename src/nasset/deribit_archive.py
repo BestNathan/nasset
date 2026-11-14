@@ -14,9 +14,10 @@ import yaml
 
 SUPPORTED_DATASETS = frozenset({
     "option_chain", "index_price", "delivery_price", "volatility_index",
-    "historical_volatility", "futures_curve", "funding_rate",
+    "historical_volatility", "futures_curve", "rwa_perpetual", "funding_rate",
 })
 INTERVALS = frozenset({1, 2, 3, 4, 6, 8, 12, 24})
+RWA_CATEGORIES = frozenset({"equity", "equity_etf", "commodity", "pre_ipo"})
 
 
 @dataclass(frozen=True)
@@ -84,9 +85,24 @@ def parse_config(doc: Mapping[str, Any]) -> ArchiveConfig:
         hours = spec.get("interval_hours")
         if type(hours) is not int or hours not in INTERVALS:
             raise ValueError(f"{name}.interval_hours must divide 24")
-        selected = _symbols(spec.get("underlyings", list(underlyings)), f"{name}.underlyings")
-        if not set(selected).issubset(underlyings):
-            raise ValueError(f"{name}.underlyings must be within shared underlyings")
+        if name == "rwa_perpetual":
+            # RWA ticker scope is independent of the BTC/ETH/PAXG crypto scope.
+            # This curated registry is a safety boundary: not every USDC
+            # perpetual is a real-world asset.
+            categories = spec.get("categories")
+            if ("underlyings" in spec or not isinstance(categories, dict)
+                    or not categories or set(categories) - RWA_CATEGORIES):
+                raise ValueError("rwa_perpetual requires known categories, not underlyings")
+            selected = tuple(ticker for category, tickers in categories.items()
+                             for ticker in _symbols(tickers, f"rwa_perpetual.categories.{category}"))
+            if len(selected) != len(set(selected)):
+                raise ValueError("rwa_perpetual ticker appears in multiple categories")
+            if set(selected) & set(underlyings):
+                raise ValueError("rwa_perpetual must not overlap crypto underlyings")
+        else:
+            selected = _symbols(spec.get("underlyings", list(underlyings)), f"{name}.underlyings")
+            if not set(selected).issubset(underlyings):
+                raise ValueError(f"{name}.underlyings must be within shared underlyings")
         if "allow_unlisted" in spec:
             if name not in {"option_chain", "futures_curve"}:
                 raise ValueError(f"{name}.allow_unlisted is only for listed derivative datasets")
