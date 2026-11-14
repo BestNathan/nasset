@@ -114,6 +114,25 @@ def test_explicit_inactive_reactivated_without_renaming():
     assert t2["events"][0]["type"] == "reactivated"
 
 
+def test_reference_index_change_emits_explicit_unverified_event():
+    previous = build_state(
+        START, START, {"ANT_USDC-PERPETUAL": inventory("ANT")},
+        None, (),
+    )
+    after = build_state(
+        START + timedelta(hours=1), START + timedelta(hours=1),
+        {"ANT_USDC-PERPETUAL": inventory("ANT", price_index="ant_live_usd")},
+        previous, (),
+    )
+    events = [e for e in after["events"]
+              if e["type"] == "pricing_reference_changed_observed"]
+    assert len(events) == 1
+    assert events[0]["previous_index"] == "ant_usd"
+    assert events[0]["new_index"] == "ant_live_usd"
+    assert events[0]["conversion_status"] == "unverified_reference_transition"
+    assert after["confirmed_actions"] == []
+
+
 def test_empty_catalog_after_active_snapshot_is_fail_closed():
     t0 = build_state(START, START, {"NVDA_USDC-PERPETUAL": inventory("NVDA")}, None, ())
     with pytest.raises(DeribitError, match="unexpectedly empty"):
